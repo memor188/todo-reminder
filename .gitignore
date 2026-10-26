@@ -1,0 +1,39 @@
+# 系统与编辑器垃圾
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+*.swp
+*~
+.vscode/
+.idea/
+
+# WorkBuddy 工具数据（本地会话/记忆缓存，不入库）
+.workbuddy/
+
+# 依赖与虚拟环境
+node_modules/
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+
+# 构建产物与日志
+dist/
+build/
+out/
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# 环境变量与密钥（绝不入库）
+.env
+.env.*
+!.env.example
+
+# 本地数据文件
+*.sqlite
+*.sqlite3
+*.db
+data/local/
