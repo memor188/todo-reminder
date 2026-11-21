@@ -111,6 +111,24 @@ class _V0HomePageState extends State<V0HomePage> {
     }
   }
 
+  Future<void> _showNow() async {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) {
+      setState(() => _message = '请先输入事项');
+      return;
+    }
+    try {
+      await widget.notifications.showNow(
+        id: 999998,
+        title: title,
+        body: '这是即时诊断通知（脚手架，V1 删除）',
+      );
+      setState(() => _message = '即时通知已发送');
+    } catch (e) {
+      setState(() => _message = '即时通知失败：$e');
+    }
+  }
+
   Future<void> _scheduleTenSecondTest() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) {
@@ -167,6 +185,12 @@ class _V0HomePageState extends State<V0HomePage> {
               key: const Key('schedule_button'),
               onPressed: _scheduleAtPickedTime,
               child: const Text('设置提醒'),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton(
+              key: const Key('now_button'),
+              onPressed: _showNow,
+              child: const Text('立即弹通知（诊断用，V1 删除）'),
             ),
             const SizedBox(height: 12),
             OutlinedButton(

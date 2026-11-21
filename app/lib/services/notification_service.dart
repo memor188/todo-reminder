@@ -46,6 +46,19 @@ class NotificationService {
       },
     );
 
+    // 必须显式创建 channel：Android 16 上 alarm 触发时 receiver 在独立
+    // 进程里发通知，若 channel 不存在会被系统静默丢弃（真机实测踩坑）。
+    const channel = AndroidNotificationChannel(
+      channelId,
+      channelName,
+      description: channelDescription,
+      importance: Importance.high,
+    );
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(channel);
+
     _initialized = true;
   }
 
@@ -102,6 +115,24 @@ class NotificationService {
       scheduledDate: tz.TZDateTime.from(eventTime, tz.local),
       notificationDetails: _notificationDetails,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+    );
+  }
+
+  /// V0 诊断：绕过闹钟直接发一条通知。
+  /// 用来区分「通知投递本身有问题」和「定时触发链路有问题」。
+  Future<void> showNow({
+    required int id,
+    required String title,
+    required String body,
+  }) async {
+    if (!_initialized) {
+      throw StateError('NotificationService.init() must be called first');
+    }
+    await _plugin.show(
+      id: id,
+      title: title,
+      body: body,
+      notificationDetails: _notificationDetails,
     );
   }
 

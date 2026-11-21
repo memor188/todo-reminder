@@ -22,7 +22,19 @@ void main() {
     expect(find.byKey(const Key('time_picker_tile')), findsOneWidget);
     expect(find.byKey(const Key('schedule_button')), findsOneWidget);
     expect(find.byKey(const Key('test_button')), findsOneWidget);
+    expect(find.byKey(const Key('now_button')), findsOneWidget);
+    expect(find.text('立即弹通知（诊断用，V1 删除）'), findsOneWidget);
     expect(find.text('10 秒后测试（脚手架，V1 删除）'), findsOneWidget);
+  });
+
+  testWidgets('事项为空时点立即弹通知给出提示，不崩溃', (WidgetTester tester) async {
+    final service = NotificationService();
+    await tester.pumpWidget(V0App(notifications: service, permissionGranted: true));
+
+    await tester.tap(find.byKey(const Key('now_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('请先输入事项'), findsOneWidget);
   });
 
   testWidgets('事项为空时点设置提醒给出提示，不崩溃', (WidgetTester tester) async {

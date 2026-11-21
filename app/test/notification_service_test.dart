@@ -36,6 +36,16 @@ void main() {
     });
   });
 
+  group('showNow 参数校验', () {
+    test('未 init 时调用 showNow 抛 StateError', () async {
+      final service = NotificationService();
+      expect(
+        () => service.showNow(id: 1, title: 'x', body: 'y'),
+        throwsA(isA<StateError>()),
+      );
+    });
+  });
+
   group('时间推算（对齐 main.dart 的顺延逻辑）', () {
     test('若选定时刻已过，顺延到次日同一时刻', () {
       final now = DateTime.now();
