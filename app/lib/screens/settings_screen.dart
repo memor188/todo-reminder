@@ -10,6 +10,7 @@ import '../services/db_service.dart';
 import '../services/notification_service.dart';
 import '../services/settings_service.dart';
 import 'ai_chat_screen.dart';
+import 'semester_plans_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -73,6 +74,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           db: widget.db,
           notifications: widget.notifications,
         ),
+      ),
+    );
+  }
+
+  void _openSemesterPlans() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => SemesterPlansScreen(settings: widget.settings),
       ),
     );
   }
@@ -172,6 +181,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           key: const Key('settings_ai_chat'),
           onPressed: _openAiChat,
           child: const Text('AI 对话录入'),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton(
+          key: const Key('settings_semester_plans'),
+          onPressed: _openSemesterPlans,
+          child: const Text('学期方案（新建课程时一键套用）'),
         ),
         const SizedBox(height: 16),
         const Text(

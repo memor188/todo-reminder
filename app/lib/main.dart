@@ -60,6 +60,7 @@ class _AppState extends State<App> {
         builder: (context) => ManualInputScreen(
           db: widget.db,
           notifications: widget.notifications,
+          settings: widget.settings,
         ),
       ),
     );
@@ -75,6 +76,7 @@ class _AppState extends State<App> {
         builder: (context) => ManualInputScreen(
           db: widget.db,
           notifications: widget.notifications,
+          settings: widget.settings,
           editing: entry,
         ),
       ),

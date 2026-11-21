@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:todo_app/main.dart';
 import 'package:todo_app/models/course.dart';
 import 'package:todo_app/models/event_item.dart';
+import 'package:todo_app/models/semester_plan.dart';
 import 'package:todo_app/models/task.dart';
 import 'package:todo_app/models/timeline.dart';
 import 'package:todo_app/services/db_service.dart';
@@ -117,6 +118,8 @@ void main() {
     expect(find.byKey(const Key('input_week_parity')), findsOneWidget);
 
     await tester.enterText(find.byKey(const Key('input_title')), '高数');
+    await tester.ensureVisible(find.text('单周'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('单周'));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const Key('save_entry')));
@@ -138,6 +141,15 @@ void main() {
     expect(find.byKey(const Key('settings_base')), findsOneWidget);
     expect(find.byKey(const Key('settings_key')), findsOneWidget);
     expect(find.byKey(const Key('settings_model')), findsOneWidget);
+
+    // 我的页是 ListView，备份区在首屏之外，必须先滚下去才会构建。
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('settings_export')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+
     expect(find.byKey(const Key('settings_export')), findsOneWidget);
     expect(find.byKey(const Key('settings_import')), findsOneWidget);
   });
@@ -294,5 +306,61 @@ void main() {
     await tester.tap(find.byKey(const Key('toggle_task_1')));
     await tester.pumpAndSettle();
     expect(find.text('取快递'), findsNothing);
+  });
+
+  testWidgets('我的页可进入学期方案并新增一条', (WidgetTester tester) async {
+    final settings = SettingsService.inMemory();
+    await tester.pumpWidget(buildApp(db: FakeDbService(), settings: settings));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('settings_semester_plans')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('还没有方案。\n建一个「2026秋」，以后新建课程就能一键套用学期起止。'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('plan_add')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('plan_name')), '2026秋');
+    await tester.enterText(find.byKey(const Key('plan_start')), '20260901');
+    await tester.enterText(find.byKey(const Key('plan_end')), '20270115');
+    await tester.tap(find.byKey(const Key('plan_save')));
+    await tester.pumpAndSettle();
+
+    // 起止日期经过掩码格式化，落库前已是 yyyy-MM-dd。
+    expect(find.text('2026秋'), findsOneWidget);
+    expect(find.text('2026-09-01 ~ 2027-01-15'), findsOneWidget);
+    expect(settings.semesterPlans.single.name, '2026秋');
+    expect(settings.semesterPlans.single.start, '2026-09-01');
+  });
+
+  testWidgets('新建课程时自动选中当前日期命中的学期方案', (WidgetTester tester) async {
+    final now = DateTime.now();
+    final start = dateKey(now.subtract(const Duration(days: 30)));
+    final end = dateKey(now.add(const Duration(days: 30)));
+
+    final settings = SettingsService.inMemory();
+    await settings.saveSemesterPlans([
+      SemesterPlan(id: 'p1', name: '本学期', start: start, end: end),
+    ]);
+
+    await tester.pumpWidget(buildApp(db: FakeDbService(), settings: settings));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('add_entry')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('课程'));
+    await tester.pumpAndSettle();
+
+    // 学期起止被方案自动填上，不用手打。
+    final startField = tester.widget<TextField>(
+      find.byKey(const Key('input_semester_start')),
+    );
+    final endField = tester.widget<TextField>(
+      find.byKey(const Key('input_semester_end')),
+    );
+    expect(startField.controller!.text, start);
+    expect(endField.controller!.text, end);
   });
 }

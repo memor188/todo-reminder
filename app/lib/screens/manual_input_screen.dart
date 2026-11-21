@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../models/course.dart';
 import '../models/event_item.dart';
+import '../models/semester_plan.dart';
 import '../models/task.dart';
 import '../models/timeline.dart';
 import '../services/db_service.dart';
 import '../services/notification_service.dart';
+import '../services/settings_service.dart';
+import '../widgets/masked_formatters.dart';
 
 enum InputType { event, task, course }
 
@@ -18,11 +21,13 @@ class ManualInputScreen extends StatefulWidget {
     super.key,
     required this.db,
     required this.notifications,
+    required this.settings,
     this.editing,
   });
 
   final DbService db;
   final NotificationService notifications;
+  final SettingsService settings;
 
   /// 非空 = 编辑已有条目。
   final TimelineEntry? editing;
@@ -45,6 +50,10 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
   int _weekParity = 0;
   String? _message;
 
+  /// 学期方案：新建课程时一键套用起止日期，省得每门课重打一遍。
+  List<SemesterPlan> _plans = const [];
+  String? _selectedPlanId;
+
   /// 编辑目标的 id（各表的自增 id）。
   int? _editingId;
   bool _loadingEdit = false;
@@ -54,6 +63,7 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
   @override
   void initState() {
     super.initState();
+    _plans = widget.settings.semesterPlans;
     final now = DateTime.now();
     final iso = dateOnlyString(now);
     _date.text = iso;
@@ -63,6 +73,27 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
       _loadingEdit = true;
       _loadEditing();
     }
+  }
+
+  /// 切到「课程」时按当前日期自动预选命中方案（用户拍板的行为）。
+  ///
+  /// 只在这一刻做一次：用户之后手动改了学期日期，再切回来不会被他没看见的
+  /// 自动逻辑覆盖掉。
+  void _autoSelectPlan() {
+    if (_plans.isEmpty || _selectedPlanId != null) return;
+    final picked = SemesterPlan.pickForDate(_plans, DateTime.now());
+    if (picked == null) return;
+    _semesterStart.text = picked.start;
+    _semesterEnd.text = picked.end;
+    setState(() => _selectedPlanId = picked.id);
+  }
+
+  void _applyPlan(SemesterPlan plan) {
+    setState(() {
+      _selectedPlanId = plan.id;
+      _semesterStart.text = plan.start;
+      _semesterEnd.text = plan.end;
+    });
   }
 
   Future<void> _loadEditing() async {
@@ -105,6 +136,14 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
           _weekParity = item.weekParity;
           _location.text = item.location ?? '';
           _note.text = item.note ?? '';
+          // 学期起止正好等于某个方案时选中它，让用户看清这门课挂在哪学期。
+          for (final plan in _plans) {
+            if (plan.start == item.semesterStart &&
+                plan.end == item.semesterEnd) {
+              _selectedPlanId = plan.id;
+              break;
+            }
+          }
         }
         break;
     }
@@ -367,7 +406,12 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
                     // 编辑时锁类型：跨表迁移不在本期范围。
                     onSelectionChanged: _isEditing
                         ? null
-                        : (value) => setState(() => _type = value.first),
+                        : (value) {
+                            setState(() => _type = value.first);
+                            if (value.first == InputType.course) {
+                              _autoSelectPlan();
+                            }
+                          },
                   ),
                   const SizedBox(height: 16),
                   TextField(
@@ -397,8 +441,12 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
                     TextField(
                       key: const Key('input_date'),
                       controller: _date,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: const [DateMaskFormatter()],
                       decoration: const InputDecoration(
-                        labelText: '日期（yyyy-MM-dd）',
+                        labelText: '日期',
+                        hintText: '20261121',
+                        helperText: '只敲数字，横杠自动补',
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -406,35 +454,87 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
                   TextField(
                     key: const Key('input_time'),
                     controller: _time,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: const [TimeMaskFormatter()],
                     decoration: InputDecoration(
-                      labelText: _type == InputType.task
-                          ? '时间（可留空）'
-                          : '开始时间（HH:mm）',
+                      labelText: _type == InputType.task ? '时间（可留空）' : '开始时间',
+                      hintText: '0900',
+                      helperText: '只敲数字，冒号自动补',
                       border: const OutlineInputBorder(),
                     ),
                   ),
                   if (_type == InputType.course) ...[
                     const SizedBox(height: 12),
                     TextField(
+                      key: const Key('input_end_time'),
                       controller: _endTime,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: const [TimeMaskFormatter()],
                       decoration: const InputDecoration(
-                        labelText: '结束时间（HH:mm）',
+                        labelText: '结束时间',
+                        hintText: '1040',
+                        helperText: '只敲数字，冒号自动补',
                         border: OutlineInputBorder(),
                       ),
                     ),
                     const SizedBox(height: 12),
+                    if (_plans.isEmpty)
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          '还没有学期方案。去「我的」页建一个，以后新建课程就能一键套用。',
+                          style: TextStyle(color: Colors.grey, fontSize: 12),
+                        ),
+                      )
+                    else
+                      DropdownButtonFormField<String>(
+                        // initialValue 只在构建时生效，换方案后靠 key 重建同步显示。
+                        key: ValueKey('input_plan_$_selectedPlanId'),
+                        initialValue: _selectedPlanId,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: '学期方案',
+                          border: OutlineInputBorder(),
+                        ),
+                        hint: const Text('未使用方案'),
+                        items: [
+                          for (final plan in _plans)
+                            DropdownMenuItem(
+                              value: plan.id,
+                              child: Text(
+                                '${plan.name}（${plan.start} ~ ${plan.end}）',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                        onChanged: (id) {
+                          if (id == null) return;
+                          _applyPlan(
+                            _plans.firstWhere((plan) => plan.id == id),
+                          );
+                        },
+                      ),
+                    const SizedBox(height: 12),
                     TextField(
+                      key: const Key('input_semester_start'),
                       controller: _semesterStart,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: const [DateMaskFormatter()],
                       decoration: const InputDecoration(
-                        labelText: '学期开始（yyyy-MM-dd）',
+                        labelText: '学期开始',
+                        hintText: '20260901',
                         border: OutlineInputBorder(),
                       ),
                     ),
                     const SizedBox(height: 12),
                     TextField(
+                      key: const Key('input_semester_end'),
                       controller: _semesterEnd,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: const [DateMaskFormatter()],
                       decoration: const InputDecoration(
-                        labelText: '学期结束（yyyy-MM-dd）',
+                        labelText: '学期结束',
+                        hintText: '20270115',
                         border: OutlineInputBorder(),
                       ),
                     ),
