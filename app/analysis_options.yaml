@@ -13,6 +13,11 @@ analyzer:
   exclude:
     - build/**
     - android/**
+  # Flutter 3.50 SDK 将 material.dart 标为 deprecated，推荐 material_ui。
+  # 但 material_ui 是模板残留依赖，本项目已主动移除（见需求文档），
+  # 关闭这条与项目决策冲突的迁移提示，不装回多余包。
+  errors:
+    deprecated_member_use: ignore
 
 linter:
   # The lint rules applied to this project can be customized in the

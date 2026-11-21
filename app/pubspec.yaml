@@ -30,7 +30,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  material_ui: ^1.1.0
+
+  # V0: 本地通知（23.x 新版 API，注意 settings:/androidScheduleMode:）
+  flutter_local_notifications: ^23.0.3
+  timezone: ^0.11.2
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
