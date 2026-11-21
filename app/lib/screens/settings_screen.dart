@@ -7,18 +7,22 @@ import 'package:share_plus/share_plus.dart';
 
 import '../services/backup_codec.dart';
 import '../services/db_service.dart';
+import '../services/notification_service.dart';
 import '../services/settings_service.dart';
+import 'ai_chat_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
     required this.settings,
     required this.db,
+    required this.notifications,
     this.onDataChanged,
   });
 
   final SettingsService settings;
   final DbService db;
+  final NotificationService notifications;
   final VoidCallback? onDataChanged;
 
   @override
@@ -59,6 +63,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _openAiChat() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => AiChatScreen(
+          settings: widget.settings,
+          db: widget.db,
+          notifications: widget.notifications,
+        ),
+      ),
+    );
   }
 
   Future<void> _save() async {
@@ -152,6 +168,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        FilledButton.tonal(
+          key: const Key('settings_ai_chat'),
+          onPressed: _openAiChat,
+          child: const Text('AI 对话录入'),
+        ),
+        const SizedBox(height: 16),
         const Text(
           'AI 供应商（OpenAI 兼容）',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -237,6 +259,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const Text(
           '默认备份不含 API key；恢复为覆盖式，失败会整体回滚。',
           style: TextStyle(color: Colors.grey, fontSize: 12),
+        ),
+        const Divider(height: 32),
+        const ExpansionTile(
+          title: Text('后台提醒白名单指引（国产 ROM）'),
+          children: [
+            Text(
+              'OriginOS（iQOO/vivo）：设置搜索「自启动」开启 → 近期任务卡片下滑加锁 → '
+              '设置搜索「后台耗电管理」允许后台高耗电；关掉睡眠模式与超级省电。',
+            ),
+            SizedBox(height: 8),
+            Text(
+              'MIUI（小米/红米）：设置 → 应用设置 → 应用管理 → 本 App → '
+              '省电策略选「无限制」；自启动开启；锁定近期任务卡片。',
+            ),
+            SizedBox(height: 8),
+            Text(
+              'EMUI/HarmonyOS（华为）：设置 → 应用 → 应用启动管理 → 本 App 关自动管理，'
+              '手动允许自启动/关联启动/后台活动；受保护应用加入白名单。',
+            ),
+            SizedBox(height: 8),
+            Text('国产 ROM 冻结是系统级限制，无法保证所有机型都准时提醒。'),
+          ],
         ),
       ],
     );

@@ -48,11 +48,14 @@ class NotificationService {
 
     // 必须显式创建 channel：Android 16 上 alarm 触发时 receiver 在独立
     // 进程里发通知，若 channel 不存在会被系统静默丢弃（真机实测踩坑）。
+    // V2 硬提醒：保持 channelId 不变（改 id 会丢用户设置），只升级行为。
     const channel = AndroidNotificationChannel(
       channelId,
       channelName,
       description: channelDescription,
-      importance: Importance.high,
+      importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
     );
     await _plugin
         .resolvePlatformSpecificImplementation<
@@ -92,8 +95,15 @@ class NotificationService {
       channelId,
       channelName,
       channelDescription: channelDescription,
-      importance: Importance.high,
-      priority: Priority.high,
+      importance: Importance.max,
+      priority: Priority.max,
+      playSound: true,
+      enableVibration: true,
+      audioAttributesUsage: AudioAttributesUsage.alarm,
+      // 按"闹钟"归类：锁屏 heads-up + 不受静音影响（vivo 实测锁屏默认隐藏
+      // PRIVATE 内容，设 public 才看得到标题）。
+      category: AndroidNotificationCategory.alarm,
+      visibility: NotificationVisibility.public,
     ),
   );
 

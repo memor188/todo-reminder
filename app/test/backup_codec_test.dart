@@ -7,28 +7,24 @@ import 'package:todo_app/services/settings_service.dart';
 
 void main() {
   BackupData sample() => BackupData(
-        courses: [
-          Course(
-            title: '高数',
-            dayOfWeek: 1,
-            startTime: '08:00',
-            endTime: '09:40',
-            semesterStart: '2026-11-01',
-            semesterEnd: '2027-01-31',
-          ),
-        ],
-        events: const [
-          EventItem(title: '考试', startAt: '2026-11-23T17:00:00'),
-        ],
-        tasks: const [
-          TaskItem(title: '取快递', dueDate: '2026-11-23'),
-        ],
-        config: {
-          SettingsService.keyBaseUrl: 'https://api.deepseek.com',
-          SettingsService.keyApiKey: 'sk-secret',
-          SettingsService.keyModel: 'deepseek-chat',
-        },
-      );
+    courses: [
+      Course(
+        title: '高数',
+        dayOfWeek: 1,
+        startTime: '08:00',
+        endTime: '09:40',
+        semesterStart: '2026-11-01',
+        semesterEnd: '2027-01-31',
+      ),
+    ],
+    events: const [EventItem(title: '考试', startAt: '2026-11-23T17:00:00')],
+    tasks: const [TaskItem(title: '取快递', dueDate: '2026-11-23')],
+    config: {
+      SettingsService.keyBaseUrl: 'https://api.deepseek.com',
+      SettingsService.keyApiKey: 'sk-secret',
+      SettingsService.keyModel: 'deepseek-chat',
+    },
+  );
 
   group('备份编解码', () {
     test('默认导出不含 API key，显式包含配置才写入', () {
@@ -50,7 +46,9 @@ void main() {
 
     test('版本不兼容的备份被拒绝', () {
       expect(
-        () => decodeBackup('{"schema_version":99,"courses":[],"events":[],"tasks":[]}'),
+        () => decodeBackup(
+          '{"schema_version":99,"courses":[],"events":[],"tasks":[]}',
+        ),
         throwsA(isA<FormatException>()),
       );
     });
@@ -58,7 +56,8 @@ void main() {
     test('字段缺失的备份被拒绝且异常信息可读', () {
       expect(
         () => decodeBackup(
-            '{"schema_version":1,"courses":[{"title":"坏数据"}],"events":[],"tasks":[]}'),
+          '{"schema_version":1,"courses":[{"title":"坏数据"}],"events":[],"tasks":[]}',
+        ),
         throwsA(isA<FormatException>()),
       );
     });

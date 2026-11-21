@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:todo_app/main.dart';
+import 'package:todo_app/models/course.dart';
 import 'package:todo_app/models/task.dart';
 import 'package:todo_app/models/timeline.dart';
 import 'package:todo_app/services/db_service.dart';
@@ -12,9 +13,16 @@ import 'package:todo_app/services/settings_service.dart';
 
 class FakeDbService extends DbService {
   AppData data = const AppData(courses: [], events: [], tasks: []);
+  final List<Course> savedCourses = [];
 
   @override
   Future<AppData> queryAll() async => data;
+
+  @override
+  Future<int> insertCourse(Course item) async {
+    savedCourses.add(item);
+    return savedCourses.length;
+  }
 
   @override
   Future<void> setTaskDone(int id, {required bool done}) async {
@@ -64,14 +72,41 @@ void main() {
     expect(find.byKey(Key('day_${dateKey(nextMonday)}')), findsOneWidget);
   });
 
-  testWidgets('点课表 tab 显示 V2 占位，不崩溃', (WidgetTester tester) async {
+  testWidgets('课表 tab 显示周网格与翻周按钮', (WidgetTester tester) async {
     await tester.pumpWidget(buildApp(db: FakeDbService()));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('课表'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('课表周网格将在 V2 实现'), findsOneWidget);
+    expect(find.byKey(const Key('tt_prev_week')), findsOneWidget);
+    expect(find.byKey(const Key('tt_next_week')), findsOneWidget);
+    expect(find.text('周一'), findsWidgets);
+    expect(find.text('周日'), findsWidgets);
+  });
+
+  testWidgets('课程录入可选择单双周并带回保存', (WidgetTester tester) async {
+    final db = FakeDbService();
+    await tester.pumpWidget(buildApp(db: db));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('add_entry')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('课程'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('input_week_parity')), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('input_title')), '高数');
+    await tester.tap(find.text('单周'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('save_entry')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save_entry')));
+    await tester.pumpAndSettle();
+
+    expect(db.savedCourses, hasLength(1));
+    expect(db.savedCourses.single.weekParity, 1);
   });
 
   testWidgets('我的页显示 AI 配置与备份控件', (WidgetTester tester) async {
@@ -109,6 +144,39 @@ void main() {
     await tester.tap(find.byKey(const Key('save_entry')));
     await tester.pumpAndSettle();
     expect(find.text('请先填事项'), findsOneWidget);
+  });
+
+  testWidgets('AI 对话页未配 key 时给出可读提示，不发请求', (WidgetTester tester) async {
+    await tester.pumpWidget(buildApp(db: FakeDbService()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('settings_ai_chat')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('ai_input')), '周五17点E栋104考试');
+    await tester.tap(find.byKey(const Key('ai_parse')));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('请先在'), findsOneWidget);
+    expect(find.byKey(const Key('ai_confirm_1')), findsNothing);
+  });
+
+  testWidgets('AI 页示例按钮能一键填入样例文本', (WidgetTester tester) async {
+    await tester.pumpWidget(buildApp(db: FakeDbService()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('settings_ai_chat')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('ai_sample_1')));
+    await tester.pumpAndSettle();
+
+    final field = tester.widget<TextField>(find.byKey(const Key('ai_input')));
+    expect(field.controller!.text, '周五17点E栋104考试，周日交作业');
   });
 
   testWidgets('任务勾选后从时间线消失', (WidgetTester tester) async {

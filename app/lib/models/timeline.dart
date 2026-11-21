@@ -79,6 +79,24 @@ int? tryParseHm(String value) {
 
 int parseHm(String value) => tryParseHm(value) ?? 0;
 
+/// 无钟点任务默认提醒钟点（2026-11-21 定稿：当天 09:00，比 8 点更贴合早课）。
+const int defaultTaskReminderMinutes = 9 * 60;
+
+/// 算出任务该在哪一刻提醒。
+/// - 有钟点：按钟点；
+/// - 无钟点：当天 [defaultTaskReminderMinutes]；
+/// - 钟点文本非法：返回 null（宁可不提醒，也不猜）。
+DateTime? resolveTaskReminderAt(DateTime date, String? dueTime) {
+  final int? minutes;
+  if (dueTime == null || dueTime.trim().isEmpty) {
+    minutes = defaultTaskReminderMinutes;
+  } else {
+    minutes = tryParseHm(dueTime);
+  }
+  if (minutes == null) return null;
+  return DateTime(date.year, date.month, date.day, minutes ~/ 60, minutes % 60);
+}
+
 String hm(int minutes) =>
     '${(minutes ~/ 60).toString().padLeft(2, '0')}:'
     '${(minutes % 60).toString().padLeft(2, '0')}';

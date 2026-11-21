@@ -6,14 +6,14 @@ import 'package:todo_app/models/timeline.dart';
 
 void main() {
   Course mondayCourse() => Course(
-        title: '高数',
-        dayOfWeek: 1,
-        startTime: '08:00',
-        endTime: '09:40',
-        location: 'E104',
-        semesterStart: '2026-11-01',
-        semesterEnd: '2027-01-31',
-      );
+    title: '高数',
+    dayOfWeek: 1,
+    startTime: '08:00',
+    endTime: '09:40',
+    location: 'E104',
+    semesterStart: '2026-11-01',
+    semesterEnd: '2027-01-31',
+  );
 
   group('时间文本归一化', () {
     test('中文输入法的全角冒号与全角数字可解析', () {
@@ -27,6 +27,26 @@ void main() {
       expect(normalizeDateText('２０２６－１１－０１'), '2026-11-01');
       expect(normalizeDateText('2026—11—01'), '2026-11-01');
       expect(DateTime.tryParse(normalizeDateText('２０２６－１１－０１')), isNotNull);
+    });
+  });
+
+  group('任务提醒时间', () {
+    test('有钟点按钟点提醒', () {
+      final at = resolveTaskReminderAt(DateTime(2026, 11, 27), '17:30');
+      expect(at, DateTime(2026, 11, 27, 17, 30));
+    });
+
+    test('无钟点默认当天 09:00 提醒（不是不提醒）', () {
+      final at = resolveTaskReminderAt(DateTime(2026, 11, 27), null);
+      expect(at, DateTime(2026, 11, 27, 9, 0));
+      expect(
+        resolveTaskReminderAt(DateTime(2026, 11, 27), '  '),
+        DateTime(2026, 11, 27, 9, 0),
+      );
+    });
+
+    test('钟点文本非法返回 null，不猜时间', () {
+      expect(resolveTaskReminderAt(DateTime(2026, 11, 27), '下午五点'), isNull);
     });
   });
 
@@ -75,16 +95,11 @@ void main() {
       final entries = buildTimeline(
         day: day,
         courses: [mondayCourse()],
-        events: [
-          const EventItem(title: '考试', startAt: '2026-11-23T17:00:00'),
-        ],
-        tasks: [
-          const TaskItem(title: '取快递', dueDate: '2026-11-23'),
-        ],
+        events: [const EventItem(title: '考试', startAt: '2026-11-23T17:00:00')],
+        tasks: [const TaskItem(title: '取快递', dueDate: '2026-11-23')],
       );
 
-      expect(entries.map((e) => e.title).toList(),
-          ['高数', '考试', '取快递']);
+      expect(entries.map((e) => e.title).toList(), ['高数', '考试', '取快递']);
       expect(entries.last.sortMinutes, 24 * 60);
     });
 

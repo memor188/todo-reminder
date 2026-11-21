@@ -87,10 +87,14 @@ class _AppState extends State<App> {
                 notifications: widget.notifications,
                 permissionGranted: widget.permissionGranted,
               ),
-              const TimetableScreen(),
+              TimetableScreen(
+                key: ValueKey('timetable_$_scheduleVersion'),
+                db: widget.db,
+              ),
               SettingsScreen(
                 settings: widget.settings,
                 db: widget.db,
+                notifications: widget.notifications,
                 onDataChanged: () => setState(() => _scheduleVersion++),
               ),
             ],

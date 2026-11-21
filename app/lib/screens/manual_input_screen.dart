@@ -34,6 +34,7 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
   final _semesterStart = TextEditingController();
   final _semesterEnd = TextEditingController();
   int _dayOfWeek = 1;
+  int _weekParity = 0;
   String? _message;
 
   @override
@@ -142,14 +143,9 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
               note: _note.text.trim().isEmpty ? null : _note.text.trim(),
             ),
           );
-          if (minutes != null) {
-            final at = DateTime(
-              date.year,
-              date.month,
-              date.day,
-              minutes ~/ 60,
-              minutes % 60,
-            );
+          // 无钟点任务也在当天 09:00 提醒（不是不提醒）。
+          final at = resolveTaskReminderAt(date, timeText);
+          if (at != null && at.isAfter(DateTime.now())) {
             await _safeSchedule(200000 + id, at, title);
           }
           break;
@@ -171,6 +167,7 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
                   : _location.text.trim(),
               semesterStart: semesterStartText,
               semesterEnd: semesterEndText,
+              weekParity: _weekParity,
             ),
           );
           break;
@@ -275,6 +272,18 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
                   labelText: '学期结束（yyyy-MM-dd）',
                   border: OutlineInputBorder(),
                 ),
+              ),
+              const SizedBox(height: 12),
+              SegmentedButton<int>(
+                key: const Key('input_week_parity'),
+                segments: const [
+                  ButtonSegment(value: 0, label: Text('每周')),
+                  ButtonSegment(value: 1, label: Text('单周')),
+                  ButtonSegment(value: 2, label: Text('双周')),
+                ],
+                selected: {_weekParity},
+                onSelectionChanged: (value) =>
+                    setState(() => _weekParity = value.first),
               ),
             ],
             const SizedBox(height: 12),
