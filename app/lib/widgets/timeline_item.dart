@@ -11,10 +11,16 @@ Color colorFromHex(String? hex) {
 }
 
 class TimelineItem extends StatelessWidget {
-  const TimelineItem({super.key, required this.entry, this.onToggleTask});
+  const TimelineItem({
+    super.key,
+    required this.entry,
+    this.onToggleTask,
+    this.onTap,
+  });
 
   final TimelineEntry entry;
   final ValueChanged<TimelineEntry>? onToggleTask;
+  final ValueChanged<TimelineEntry>? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -25,6 +31,7 @@ class TimelineItem extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
       color: entry.type == EntryType.course ? color.withAlpha(18) : null,
       child: ListTile(
+        onTap: onTap == null ? null : () => onTap!(entry),
         leading: isTask
             ? IconButton(
                 key: Key('toggle_${entry.key}'),

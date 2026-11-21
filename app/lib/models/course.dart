@@ -8,6 +8,7 @@ class Course {
     required this.endTime,
     this.location,
     this.color,
+    this.note,
     required this.semesterStart, // yyyy-MM-dd
     required this.semesterEnd,
     this.weekParity = 0, // 0=每周，1=单周，2=双周（V2 使用）
@@ -20,6 +21,7 @@ class Course {
   final String endTime;
   final String? location;
   final String? color;
+  final String? note;
   final String semesterStart;
   final String semesterEnd;
   final int weekParity;
@@ -32,6 +34,7 @@ class Course {
     'end_time': endTime,
     'location': location,
     'color': color,
+    'note': note,
     'semester_start': semesterStart,
     'semester_end': semesterEnd,
     'week_parity': weekParity,
@@ -45,6 +48,7 @@ class Course {
     endTime: map['end_time']! as String,
     location: map['location'] as String?,
     color: map['color'] as String?,
+    note: map['note'] as String?,
     semesterStart: map['semester_start']! as String,
     semesterEnd: map['semester_end']! as String,
     weekParity: (map['week_parity'] as num?)?.toInt() ?? 0,

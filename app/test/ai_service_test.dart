@@ -184,6 +184,67 @@ void main() {
       expect(drafts.single.title, '交作业');
     });
 
+    test('day_of_week 兼容数字、中文与「星期天」', () {
+      expect(AiService.parseDayOfWeek(3), 3);
+      expect(AiService.parseDayOfWeek('3'), 3);
+      expect(AiService.parseDayOfWeek('周一'), 1);
+      expect(AiService.parseDayOfWeek('星期日'), 7);
+      expect(AiService.parseDayOfWeek('周天'), 7);
+      expect(AiService.parseDayOfWeek('什么'), isNull);
+      expect(AiService.parseDayOfWeek(9), isNull);
+      expect(AiService.parseDayOfWeek(null), isNull);
+    });
+
+    test('模型把 day_of_week 写成「周一」也能落到数字 1', () async {
+      final client = MockClient(
+        (_) async => okResponse({
+          'items': [
+            {
+              'type': 'course',
+              'title': '高数',
+              'date': '2026-11-23',
+              'time': '08:00',
+              'end_time': '09:40',
+              'day_of_week': '周一',
+            },
+          ],
+        }),
+      );
+
+      final drafts = await serviceFor(client).parse('每周一早上八点高数');
+      expect(drafts.single.dayOfWeek, 1);
+    });
+
+    test('长文本活动通知能提取时间地点且忽略链接', () async {
+      final client = MockClient(
+        (_) async => okResponse({
+          'items': [
+            {
+              'type': 'event',
+              'title': '党旗下的青春（第四十七期）',
+              'date': '2026-11-22',
+              'time': '15:00',
+              'end_time': '17:00',
+              'location': '东海岸校区E教101-阶梯教室',
+              'note': '提前10分钟到场签到',
+            },
+          ],
+        }),
+      );
+
+      final drafts = await serviceFor(client).parse(
+        '🔔【活动提醒】党旗下的青春\n'
+        '⏰活动时间：2026年11月22日（周日）15:00—17:00\n'
+        '🎯 活动地点：东海岸校区E教101-阶梯教室\n'
+        'https://v.wjx.cn/vm/Pc9A5ho.aspx',
+      );
+
+      expect(drafts.single.time, '15:00');
+      expect(drafts.single.endTime, '17:00');
+      expect(drafts.single.location, contains('E教101'));
+      expect(drafts.single.title, isNot(contains('wjx')));
+    });
+
     test('API key 为空时不发请求直接报错', () async {
       var called = false;
       final client = MockClient((_) async {

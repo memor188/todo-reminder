@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:todo_app/main.dart';
 import 'package:todo_app/models/course.dart';
+import 'package:todo_app/models/event_item.dart';
 import 'package:todo_app/models/task.dart';
 import 'package:todo_app/models/timeline.dart';
 import 'package:todo_app/services/db_service.dart';
@@ -15,6 +16,11 @@ class FakeDbService extends DbService {
   AppData data = const AppData(courses: [], events: [], tasks: []);
   final List<Course> savedCourses = [];
 
+  /// 编辑相关：测试里预置一条事件，记录 update / delete 是否被调用。
+  EventItem? storedEvent;
+  EventItem? updatedEvent;
+  int? deletedEventId;
+
   @override
   Future<AppData> queryAll() async => data;
 
@@ -22,6 +28,19 @@ class FakeDbService extends DbService {
   Future<int> insertCourse(Course item) async {
     savedCourses.add(item);
     return savedCourses.length;
+  }
+
+  @override
+  Future<EventItem?> findEvent(int id) async => storedEvent;
+
+  @override
+  Future<void> updateEvent(EventItem item) async {
+    updatedEvent = item;
+  }
+
+  @override
+  Future<void> deleteEvent(int id) async {
+    deletedEventId = id;
   }
 
   @override
@@ -177,6 +196,83 @@ void main() {
 
     final field = tester.widget<TextField>(find.byKey(const Key('ai_input')));
     expect(field.controller!.text, '周五17点E栋104考试，周日交作业');
+
+    // 第三个示例是真实的长段活动通知，验证一键填入且关键信息完整。
+    await tester.ensureVisible(find.byKey(const Key('ai_sample_3')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('ai_sample_3')));
+    await tester.pumpAndSettle();
+
+    final longField = tester.widget<TextField>(find.byKey(const Key('ai_input')));
+    expect(longField.controller!.text, contains('党旗下的青春'));
+    expect(longField.controller!.text, contains('E教101-阶梯教室'));
+    expect(longField.controller!.text, contains('15:00—17:00'));
+  });
+
+  testWidgets('日程页有 AI 录入入口，位于加号旁边', (WidgetTester tester) async {
+    await tester.pumpWidget(buildApp(db: FakeDbService()));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('ai_entry')), findsOneWidget);
+    expect(find.byKey(const Key('add_entry')), findsOneWidget);
+  });
+
+  testWidgets('点日程条目进入编辑页，标题预填且可保存修改', (WidgetTester tester) async {
+    final today = dateKey(DateTime.now());
+    final db = FakeDbService();
+    db.storedEvent = EventItem(
+      id: 5,
+      title: '考试',
+      startAt: '${today}T23:30:00',
+      location: 'E104',
+    );
+    db.data = AppData(courses: [], events: [db.storedEvent!], tasks: []);
+
+    await tester.pumpWidget(buildApp(db: db));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('考试'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('编辑条目'), findsOneWidget);
+    expect(find.byKey(const Key('delete_entry')), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('input_title')), '补考');
+    await tester.ensureVisible(find.byKey(const Key('save_entry')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save_entry')));
+    await tester.pumpAndSettle();
+
+    expect(db.updatedEvent?.title, '补考');
+    expect(db.updatedEvent?.id, 5);
+  });
+
+  testWidgets('编辑页删除需二次确认', (WidgetTester tester) async {
+    final today = dateKey(DateTime.now());
+    final db = FakeDbService();
+    db.storedEvent = EventItem(
+      id: 7,
+      title: '讲座',
+      startAt: '${today}T23:40:00',
+    );
+    db.data = AppData(courses: [], events: [db.storedEvent!], tasks: []);
+
+    await tester.pumpWidget(buildApp(db: db));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('讲座'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('delete_entry')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('delete_entry')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('删除这条？'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('confirm_delete')));
+    await tester.pumpAndSettle();
+
+    expect(db.deletedEventId, 7);
   });
 
   testWidgets('任务勾选后从时间线消失', (WidgetTester tester) async {

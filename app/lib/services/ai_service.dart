@@ -78,12 +78,17 @@ class AiService {
 - event：到点必须在那 —— 考试、讲座、会议、面试、火车航班。
 - task：当天做完即可 —— 写作业、取快递、交材料、买东西。
 - course：每周固定上课 —— 填 day_of_week 与 time/end_time，date 填首次上课日。
+  day_of_week 必须是数字 1-7（周一=1，周日=7），不要写「周一」这种文字。
 
 字段：
-- title 保留用户原词，去掉时间地点，不加「参加/去/完成」，不翻译。
+- title 保留用户原词或活动全称（可含期次、专场），去掉时间地点、emoji 和口号，不加「参加/去/完成」，不翻译。
 - location 照抄原文，没有则 null。
-- note 放额外要求（带计算器、开卷），没有则 null。
+- note 放额外要求（带计算器、开卷、提前签到），没有则 null。
 - 不确定的字段一律 null，不要猜。
+
+长文本：
+用户可能直接粘贴一整段活动通知（带 emoji、报名链接、口号）。只提取这件事本身的时间、
+地点和名称；链接、口号、报名步骤不要写进 title，有用的要求放 note。
 
 输出格式（items 按用户提到的顺序排列，几件就几个）：
 {"items":[{"type":"event","title":"...","date":"yyyy-MM-dd","time":"HH:mm","end_time":null,"day_of_week":null,"location":"...","note":null}]}
@@ -175,6 +180,27 @@ class AiService {
     return drafts;
   }
 
+  /// 模型有时把 day_of_week 写成「周一」而不是 1，这里两种都接。
+  /// 真机实测（2026-11-21）：「每周一早上八点高数」返回了 "周一"，
+  /// 只认数字会退化成"今天"，课程直接排错天。
+  static int? parseDayOfWeek(Object? raw) {
+    if (raw is num) {
+      final value = raw.toInt();
+      return (value >= 1 && value <= 7) ? value : null;
+    }
+    if (raw is String) {
+      final text = raw.trim();
+      final asInt = int.tryParse(text);
+      if (asInt != null && asInt >= 1 && asInt <= 7) return asInt;
+      const names = ['一', '二', '三', '四', '五', '六', '日'];
+      for (var i = 0; i < names.length; i++) {
+        if (text.contains(names[i])) return i + 1;
+      }
+      if (text.contains('天')) return 7; // 周天 / 星期天
+    }
+    return null;
+  }
+
   /// 缺标题的条目直接跳过，不让一条脏数据拖垮整批。
   AiDraft? _draftFromJson(Map<String, dynamic> json) {
     final rawType = (json['type'] as String?)?.toLowerCase();
@@ -185,14 +211,13 @@ class AiService {
     };
     final title = (json['title'] as String?)?.trim();
     if (title == null || title.isEmpty) return null;
-    final day = json['day_of_week'];
     return AiDraft(
       type: type,
       title: title,
       date: json['date'] as String?,
       time: json['time'] as String?,
       endTime: json['end_time'] as String?,
-      dayOfWeek: day is num ? day.toInt() : null,
+      dayOfWeek: parseDayOfWeek(json['day_of_week']),
       location: json['location'] as String?,
       note: json['note'] as String?,
       raw: json,

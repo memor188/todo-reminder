@@ -27,6 +27,11 @@ out/
 npm-debug.log*
 yarn-error.log*
 
+# 真机验收截图与临时构建日志（本地留证，不入库）
+build_shots/
+build_log.txt
+tools/ai_probe_out.txt
+
 # 环境变量与密钥（绝不入库）
 .env
 .env.*
@@ -40,3 +45,5 @@ android/key.properties
 *.sqlite3
 *.db
 data/local/
+
+v3_home.png

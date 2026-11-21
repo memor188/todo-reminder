@@ -13,6 +13,7 @@ class TimelineEntry {
     required this.title,
     required this.sortMinutes,
     required this.timeLabel,
+    this.endMinutes,
     this.location,
     this.note,
     this.colorHex,
@@ -24,6 +25,9 @@ class TimelineEntry {
   final EntryType type;
   final String title;
   final int sortMinutes;
+
+  /// 结束时刻（当天分钟数）。只给"有明确结束时间"的条目（目前是课程）。
+  final int? endMinutes;
   final String timeLabel;
   final String? location;
   final String? note;
@@ -127,6 +131,7 @@ List<TimelineEntry> expandCourse(Course course, DateTime day) {
       title: course.title,
       sortMinutes: begin,
       timeLabel: '${course.startTime}–${course.endTime}',
+      endMinutes: parseHm(course.endTime),
       location: course.location,
       note: course.color,
       colorHex: course.color,
@@ -188,4 +193,88 @@ List<TimelineEntry> buildTimeline({
 
   result.sort((a, b) => a.sortMinutes.compareTo(b.sortMinutes));
   return result;
+}
+
+class _Span {
+  _Span(this.entry, this.start, this.end);
+  final TimelineEntry entry;
+  final int start;
+  final int end;
+}
+
+/// 课表网格里一条条目的位置（分钟为单位，渲染层再换算成像素）。
+class GridSlot {
+  const GridSlot({
+    required this.entry,
+    required this.startMinutes,
+    required this.endMinutes,
+    required this.column,
+    required this.columns,
+  });
+
+  final TimelineEntry entry;
+  final int startMinutes;
+  final int endMinutes;
+
+  /// 组内第几列（0 起）与组内总列数，用来并排显示重叠条目。
+  final int column;
+  final int columns;
+}
+
+/// 把一天的时间线算成网格占位。
+///
+/// - 有 [TimelineEntry.endMinutes]（课程）按真实区间铺；
+/// - 没有的（事件/任务）按 [defaultDurationMinutes] 撑开，太短则给 [minDurationMinutes]；
+/// - 时间区间有重叠的条目并排显示，宽度平分；不重叠的各占整列。
+List<GridSlot> layoutDay(
+  List<TimelineEntry> entries, {
+  int defaultDurationMinutes = 60,
+  int minDurationMinutes = 20,
+}) {
+  final sorted = [...entries]
+    ..sort((a, b) => a.sortMinutes.compareTo(b.sortMinutes));
+
+  final slots = <GridSlot>[];
+  var group = <_Span>[];
+  var groupEnd = -1;
+
+  void flush() {
+    if (group.isEmpty) return;
+    final columns = group.length;
+    for (var i = 0; i < group.length; i++) {
+      final span = group[i];
+      slots.add(
+        GridSlot(
+          entry: span.entry,
+          startMinutes: span.start,
+          endMinutes: span.end,
+          column: i,
+          columns: columns,
+        ),
+      );
+    }
+    group = <_Span>[];
+  }
+
+  for (final entry in sorted) {
+    final start = entry.sortMinutes;
+    final rawEnd = entry.endMinutes;
+    final end = rawEnd != null && rawEnd > start
+        ? rawEnd
+        : start + defaultDurationMinutes;
+    final safeEnd = end - start < minDurationMinutes
+        ? start + minDurationMinutes
+        : end;
+    final span = _Span(entry, start, safeEnd);
+
+    if (group.isNotEmpty && span.start >= groupEnd) {
+      flush();
+      groupEnd = -1;
+    }
+    group.add(span);
+    if (span.end > groupEnd) groupEnd = span.end;
+  }
+  flush();
+
+  return slots;
 }

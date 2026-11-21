@@ -9,6 +9,18 @@ import '../services/db_service.dart';
 import '../services/notification_service.dart';
 import '../services/settings_service.dart';
 
+/// 一段真实的微信公众号活动通知，用来演示「AI 从一大段话里抽有效信息」。
+///
+/// 原文含 emoji、报名链接、口号，这些都不该进事项标题，只该进备注。
+const String sampleLongNotice =
+    '🔔【活动提醒】工学院党委“党旗下的青春”（第四十七期）——东海岸校区新生专场活动 '
+    '⏰活动时间：2026年11月22日（周日）15:00—17:00 '
+    '🎯 活动地点：东海岸校区E教101-阶梯教室 '
+    '参与对象：工学院2026级全体新生（入党申请人如无特殊情况均需参加）'
+    '✅请各位报名同学提前10分钟到场签到，仍有意向参加的同学，'
+    '可填写下方报名问卷：https://v.wjx.cn/vm/Pc9A5ho.aspx '
+    '🔥期待在活动现场见到大家！不见不散~';
+
 /// AI 对话录入：一句话可解析出多条草稿，每条独立确认入库。
 ///
 /// 草稿只活在内存里，用户按下「确认入库」才写表——这是需求里的硬约束：
@@ -262,6 +274,13 @@ class _AiChatScreenState extends State<AiChatScreen> {
                         label: const Text('12.03E栋103听讲座'),
                         onPressed: () =>
                             setState(() => _input.text = '12.03E栋103听讲座'),
+                      ),
+                      const SizedBox(width: 8),
+                      ActionChip(
+                        key: const Key('ai_sample_3'),
+                        label: const Text('活动通知（一大段）'),
+                        onPressed: () =>
+                            setState(() => _input.text = sampleLongNotice),
                       ),
                     ],
                   ),

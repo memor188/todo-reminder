@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'models/timeline.dart';
+import 'screens/ai_chat_screen.dart';
 import 'screens/manual_input_screen.dart';
 import 'screens/schedule_screen.dart';
 import 'screens/settings_screen.dart';
@@ -66,6 +68,35 @@ class _AppState extends State<App> {
     }
   }
 
+  /// 点日程/课表里的条目 → 编辑已有条目。
+  Future<void> _openEntry(TimelineEntry entry) async {
+    final saved = await _navigatorKey.currentState!.push<bool>(
+      MaterialPageRoute(
+        builder: (context) => ManualInputScreen(
+          db: widget.db,
+          notifications: widget.notifications,
+          editing: entry,
+        ),
+      ),
+    );
+    if (saved == true && mounted) {
+      setState(() => _scheduleVersion++);
+    }
+  }
+
+  Future<void> _openAiChat() async {
+    await _navigatorKey.currentState!.push(
+      MaterialPageRoute(
+        builder: (context) => AiChatScreen(
+          settings: widget.settings,
+          db: widget.db,
+          notifications: widget.notifications,
+        ),
+      ),
+    );
+    if (mounted) setState(() => _scheduleVersion++);
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -86,10 +117,12 @@ class _AppState extends State<App> {
                 db: widget.db,
                 notifications: widget.notifications,
                 permissionGranted: widget.permissionGranted,
+                onOpenEntry: _openEntry,
               ),
               TimetableScreen(
                 key: ValueKey('timetable_$_scheduleVersion'),
                 db: widget.db,
+                onOpenEntry: _openEntry,
               ),
               SettingsScreen(
                 settings: widget.settings,
@@ -100,11 +133,26 @@ class _AppState extends State<App> {
             ],
           ),
         ),
+        // 2026-11-21 用户要求：AI 录入入口放在日程页，位于加号左边。
         floatingActionButton: _index == 0
-            ? FloatingActionButton(
-                key: const Key('add_entry'),
-                onPressed: _openInput,
-                child: const Icon(Icons.add),
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FloatingActionButton.small(
+                    key: const Key('ai_entry'),
+                    heroTag: 'fab_ai',
+                    tooltip: 'AI 对话录入',
+                    onPressed: _openAiChat,
+                    child: const Icon(Icons.auto_awesome),
+                  ),
+                  const SizedBox(width: 12),
+                  FloatingActionButton(
+                    key: const Key('add_entry'),
+                    heroTag: 'fab_add',
+                    onPressed: _openInput,
+                    child: const Icon(Icons.add),
+                  ),
+                ],
               )
             : null,
         bottomNavigationBar: NavigationBar(

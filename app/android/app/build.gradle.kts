@@ -7,6 +7,18 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+repositories {
+    // Flutter engine 的 jar 合计约 430MB，官方源 storage.googleapis.com 在本机实测
+    // 只有 ~40KB/s，会让构建卡十几分钟甚至看上去像卡死。这里把 io.flutter 这一组
+    // 独占锁到本地离线仓库（内容取自 Flutter SDK 自带的 engine 缓存），彻底绕开网络。
+    exclusiveContent {
+        forRepository {
+            maven { url = uri("file:///E:/AndroidDev/local-maven") }
+        }
+        filter { includeGroup("io.flutter") }
+    }
+}
+
 val keystoreProperties = Properties().apply {
     val file = rootProject.file("key.properties")
     if (file.exists()) load(FileInputStream(file))

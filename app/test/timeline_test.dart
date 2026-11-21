@@ -50,6 +50,55 @@ void main() {
     });
   });
 
+  group('课表网格布局', () {
+    TimelineEntry entry(String key, EntryType type, int start, {int? end}) =>
+        TimelineEntry(
+          key: key,
+          sourceId: 1,
+          type: type,
+          title: key,
+          sortMinutes: start,
+          endMinutes: end,
+          timeLabel: '',
+        );
+
+    test('课程按真实起止铺开（08:00-09:40）', () {
+      final slots = layoutDay([entry('c', EntryType.course, 480, end: 580)]);
+      expect(slots.single.startMinutes, 480);
+      expect(slots.single.endMinutes, 580);
+      expect(slots.single.columns, 1);
+    });
+
+    test('无结束时间的条目默认撑开 1 小时', () {
+      final slots = layoutDay([entry('e', EntryType.event, 600)]);
+      expect(slots.single.endMinutes, 660);
+    });
+
+    test('时间重叠的条目并排平分宽度', () {
+      final slots = layoutDay([
+        entry('a', EntryType.course, 480, end: 540),
+        entry('b', EntryType.event, 500, end: 560),
+      ]);
+      expect(slots.every((s) => s.columns == 2), isTrue);
+      expect(slots.map((s) => s.column).toSet(), {0, 1});
+    });
+
+    test('不重叠的条目各占整列', () {
+      final slots = layoutDay([
+        entry('a', EntryType.course, 480, end: 540),
+        entry('b', EntryType.event, 600, end: 660),
+      ]);
+      expect(slots.every((s) => s.columns == 1), isTrue);
+    });
+
+    test('结束早于开始的脏数据按默认 1 小时处理', () {
+      final slots = layoutDay([
+        entry('a', EntryType.event, 480, end: 470),
+      ]);
+      expect(slots.single.endMinutes, 540);
+    });
+  });
+
   group('课程展开', () {
     test('只在学期范围内、匹配星期的日期展开', () {
       final course = mondayCourse();

@@ -11,11 +11,15 @@ class ScheduleScreen extends StatefulWidget {
     required this.db,
     required this.notifications,
     required this.permissionGranted,
+    this.onOpenEntry,
   });
 
   final DbService db;
   final NotificationService notifications;
   final bool permissionGranted;
+
+  /// 点条目进入编辑页（2026-11-21 用户要求）。
+  final ValueChanged<TimelineEntry>? onOpenEntry;
 
   @override
   State<ScheduleScreen> createState() => _ScheduleScreenState();
@@ -144,6 +148,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   itemBuilder: (context, index) => TimelineItem(
                     entry: entries[index],
                     onToggleTask: _toggleTask,
+                    onTap: widget.onOpenEntry,
                   ),
                 ),
         ),
