@@ -31,6 +31,9 @@ yarn-error.log*
 .env
 .env.*
 !.env.example
+android/key.properties
+*.jks
+*.keystore
 
 # 本地数据文件
 *.sqlite

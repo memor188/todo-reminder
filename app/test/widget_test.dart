@@ -1,85 +1,134 @@
-// V0 UI 测试：验证通知链路探针页面的关键控件存在与交互。
-// 这些测试针对 V0 的真实 UI，不是模板 smoke test。
+// V1 UI 测试：验证三 tab 骨架、录入页与设置页的关键交互。
+// V0 的通知探针测试已被真实 V1 UI 测试替换（不是删除测试）。
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:todo_app/main.dart';
+import 'package:todo_app/models/task.dart';
+import 'package:todo_app/models/timeline.dart';
+import 'package:todo_app/services/db_service.dart';
 import 'package:todo_app/services/notification_service.dart';
+import 'package:todo_app/services/settings_service.dart';
+
+class FakeDbService extends DbService {
+  AppData data = const AppData(courses: [], events: [], tasks: []);
+
+  @override
+  Future<AppData> queryAll() async => data;
+
+  @override
+  Future<void> setTaskDone(int id, {required bool done}) async {
+    data = AppData(
+      courses: data.courses,
+      events: data.events,
+      tasks: data.tasks.where((t) => t.id != id).toList(),
+    );
+  }
+}
 
 void main() {
-  // 测试用的假服务：Flutter 插件在 test 环境没有平台实现，
-  // 所以用一个遵循同一接口的替身来验 UI 逻辑，不碰真实通知通道。
-  // 通过构造一个不调用插件的对象来避开平台通道——
-  // 这里直接用真实单例但只测不触发调度路径的控件呈现。
-
-  testWidgets('V0 页面显示所有关键控件', (WidgetTester tester) async {
-    // 真实 NotificationService 单例在 test 环境未 init，但页面构建不调用插件。
-    final service = NotificationService();
-    await tester.pumpWidget(V0App(notifications: service, permissionGranted: true));
-
-    expect(find.text('待办 App V0 · 通知链路验证'), findsOneWidget);
-    expect(find.byKey(const Key('title_field')), findsOneWidget);
-    expect(find.byKey(const Key('time_picker_tile')), findsOneWidget);
-    expect(find.byKey(const Key('schedule_button')), findsOneWidget);
-    expect(find.byKey(const Key('test_button')), findsOneWidget);
-    expect(find.byKey(const Key('now_button')), findsOneWidget);
-    expect(find.text('立即弹通知（诊断用，V1 删除）'), findsOneWidget);
-    expect(find.text('10 秒后测试（脚手架，V1 删除）'), findsOneWidget);
-  });
-
-  testWidgets('事项为空时点立即弹通知给出提示，不崩溃', (WidgetTester tester) async {
-    final service = NotificationService();
-    await tester.pumpWidget(V0App(notifications: service, permissionGranted: true));
-
-    await tester.tap(find.byKey(const Key('now_button')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('请先输入事项'), findsOneWidget);
-  });
-
-  testWidgets('事项为空时点设置提醒给出提示，不崩溃', (WidgetTester tester) async {
-    final service = NotificationService();
-    await tester.pumpWidget(V0App(notifications: service, permissionGranted: true));
-
-    await tester.tap(find.byKey(const Key('schedule_button')));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const Key('status_message')), findsOneWidget);
-    expect(find.text('请先输入事项'), findsOneWidget);
-  });
-
-  testWidgets('事项为空时点 10 秒测试给出提示，不崩溃', (WidgetTester tester) async {
-    final service = NotificationService();
-    await tester.pumpWidget(V0App(notifications: service, permissionGranted: true));
-
-    await tester.tap(find.byKey(const Key('test_button')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('请先输入事项'), findsOneWidget);
-  });
-
-  testWidgets('权限未授予时显示明确警示（不静默失败）', (WidgetTester tester) async {
-    final service = NotificationService();
-    await tester.pumpWidget(V0App(notifications: service, permissionGranted: false));
-
-    expect(
-      find.textContaining('通知权限未授予'),
-      findsOneWidget,
+  Widget buildApp({
+    required FakeDbService db,
+    bool permissionGranted = true,
+    SettingsService? settings,
+  }) {
+    return App(
+      notifications: NotificationService(),
+      permissionGranted: permissionGranted,
+      db: db,
+      settings: settings ?? SettingsService.inMemory(),
     );
+  }
+
+  testWidgets('V1 首页有三 tab、添加按钮和空日程提示', (WidgetTester tester) async {
+    await tester.pumpWidget(buildApp(db: FakeDbService()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('日程'), findsOneWidget);
+    expect(find.text('课表'), findsOneWidget);
+    expect(find.text('我的'), findsOneWidget);
+    expect(find.byKey(const Key('add_entry')), findsOneWidget);
+    expect(find.text('这一天暂无日程'), findsOneWidget);
   });
 
-  testWidgets('输入事项后可点击设置提醒按钮', (WidgetTester tester) async {
-    final service = NotificationService();
-    await tester.pumpWidget(V0App(notifications: service, permissionGranted: true));
-
-    await tester.enterText(find.byKey(const Key('title_field')), '测试提醒');
-    await tester.pump();
-    expect(find.text('测试提醒'), findsOneWidget);
-
-    // 按钮此时应可点击（不抛异常）。真实调度需平台插件，在 widget 测试里
-    // 用一个会抛 MissingPluginException 的调用验证错误分支被 UI 捕获为文案。
-    await tester.tap(find.byKey(const Key('schedule_button')));
+  testWidgets('翻周按钮可切换到下一周', (WidgetTester tester) async {
+    final now = DateTime.now();
+    final monday = now.subtract(Duration(days: now.weekday - 1));
+    final nextMonday = monday.add(const Duration(days: 7));
+    await tester.pumpWidget(buildApp(db: FakeDbService()));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('status_message')), findsOneWidget);
+
+    expect(find.byKey(Key('day_${dateKey(nextMonday)}')), findsNothing);
+    await tester.tap(find.byKey(const Key('next_week')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(Key('day_${dateKey(nextMonday)}')), findsOneWidget);
+  });
+
+  testWidgets('点课表 tab 显示 V2 占位，不崩溃', (WidgetTester tester) async {
+    await tester.pumpWidget(buildApp(db: FakeDbService()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('课表'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('课表周网格将在 V2 实现'), findsOneWidget);
+  });
+
+  testWidgets('我的页显示 AI 配置与备份控件', (WidgetTester tester) async {
+    await tester.pumpWidget(buildApp(db: FakeDbService()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('settings_base')), findsOneWidget);
+    expect(find.byKey(const Key('settings_key')), findsOneWidget);
+    expect(find.byKey(const Key('settings_model')), findsOneWidget);
+    expect(find.byKey(const Key('settings_export')), findsOneWidget);
+    expect(find.byKey(const Key('settings_import')), findsOneWidget);
+  });
+
+  testWidgets('权限未授予时日程页显示警示', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      buildApp(db: FakeDbService(), permissionGranted: false),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('通知权限未授予'), findsOneWidget);
+  });
+
+  testWidgets('点添加按钮进入录入页，空标题点保存给出提示', (WidgetTester tester) async {
+    await tester.pumpWidget(buildApp(db: FakeDbService()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('add_entry')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('新建条目'), findsOneWidget);
+    expect(find.byKey(const Key('input_title')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('save_entry')));
+    await tester.pumpAndSettle();
+    expect(find.text('请先填事项'), findsOneWidget);
+  });
+
+  testWidgets('任务勾选后从时间线消失', (WidgetTester tester) async {
+    final today = dateKey(DateTime.now());
+    final db = FakeDbService();
+    db.data = AppData(
+      courses: const [],
+      events: const [],
+      tasks: [TaskItem(id: 1, title: '取快递', dueDate: today)],
+    );
+    await tester.pumpWidget(buildApp(db: db));
+    await tester.pumpAndSettle();
+
+    // 选中任务所在日期，确保条目出现在时间线
+    await tester.tap(find.byKey(Key('day_$today')));
+    await tester.pumpAndSettle();
+    expect(find.text('取快递'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('toggle_task_1')));
+    await tester.pumpAndSettle();
+    expect(find.text('取快递'), findsNothing);
   });
 }

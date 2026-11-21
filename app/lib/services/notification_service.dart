@@ -56,7 +56,8 @@ class NotificationService {
     );
     await _plugin
         .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>()
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.createNotificationChannel(channel);
 
     _initialized = true;
@@ -65,8 +66,10 @@ class NotificationService {
   /// Android 13+ 通知权限 + Android 12+ 精确闹钟权限。
   /// 返回通知权限是否被授予，供 UI 给出提示（不静默失败）。
   Future<bool> requestPermissions() async {
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (android == null) return false;
 
     final granted = await android.requestNotificationsPermission() ?? false;
@@ -76,21 +79,23 @@ class NotificationService {
 
   /// 通知权限是否已被授予（V0 验收用）。
   Future<bool> areNotificationsEnabled() async {
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (android == null) return false;
     return await android.areNotificationsEnabled() ?? false;
   }
 
   NotificationDetails get _notificationDetails => const NotificationDetails(
-        android: AndroidNotificationDetails(
-          channelId,
-          channelName,
-          channelDescription: channelDescription,
-          importance: Importance.high,
-          priority: Priority.high,
-        ),
-      );
+    android: AndroidNotificationDetails(
+      channelId,
+      channelName,
+      channelDescription: channelDescription,
+      importance: Importance.high,
+      priority: Priority.high,
+    ),
+  );
 
   /// 在指定绝对时间调度一条通知。
   Future<void> schedule({
