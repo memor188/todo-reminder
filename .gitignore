@@ -50,3 +50,6 @@ android/key.properties
 data/local/
 
 v3_home.png
+
+# 临时 GitHub token（用完即删，绝不入库）
+.gh_token
