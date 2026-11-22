@@ -21,6 +21,9 @@ API_KEY = os.environ.get("DEEPSEEK_KEY", "")
 BASE_URL = "https://api.deepseek.com"
 MODEL = "deepseek-chat"
 
+if not API_KEY:
+    sys.exit("没找到 key。先设环境变量：export DEEPSEEK_KEY=sk-xxx")
+
 # 固定"现在"为 2026-11-21 21:19（周六），便于复现
 NOW = "2026-11-21"
 WEEKDAY = "六"
