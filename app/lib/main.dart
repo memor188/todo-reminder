@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:developer' as developer;
+
 import 'package:flutter/material.dart';
 
 import 'models/timeline.dart';
@@ -8,6 +11,7 @@ import 'screens/settings_screen.dart';
 import 'screens/timetable_screen.dart';
 import 'services/db_service.dart';
 import 'services/notification_service.dart';
+import 'services/reminder_service.dart';
 import 'services/settings_service.dart';
 
 Future<void> main() async {
@@ -53,6 +57,28 @@ class _AppState extends State<App> {
   int _index = 0;
   int _scheduleVersion = 0;
   final _navigatorKey = GlobalKey<NavigatorState>();
+
+  late final ReminderService _reminders = ReminderService(widget.notifications);
+
+  @override
+  void initState() {
+    super.initState();
+    // 启动时把库里的数据重排一遍提醒。
+    // 写入时排一次是不够的：从备份恢复、换机重装、系统把闹钟清掉之后，
+    // 库里还有数据而闹钟已经没了——用户以为提醒在，其实不会响。
+    unawaited(_syncReminders());
+  }
+
+  Future<void> _syncReminders() async {
+    try {
+      final data = await widget.db.queryAll();
+      final result = await _reminders.syncAll(data);
+      developer.log('启动重排提醒：$result', name: 'main');
+    } catch (error) {
+      // 重排失败不该挡住界面；下次启动会再试。
+      developer.log('启动重排提醒失败: $error', name: 'main');
+    }
+  }
 
   Future<void> _openInput() async {
     final saved = await _navigatorKey.currentState!.push<bool>(
@@ -130,7 +156,12 @@ class _AppState extends State<App> {
                 settings: widget.settings,
                 db: widget.db,
                 notifications: widget.notifications,
-                onDataChanged: () => setState(() => _scheduleVersion++),
+                onDataChanged: () {
+                  setState(() => _scheduleVersion++);
+                  // 恢复备份 / 导入课表只写库不排闹钟，这里必须整体重排一次，
+                  // 否则用户看到满满一屏日程，实际一条都不会响。
+                  unawaited(_syncReminders());
+                },
               ),
             ],
           ),

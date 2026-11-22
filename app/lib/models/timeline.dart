@@ -154,14 +154,35 @@ DateTime? resolveRemindAt({
   required DateTime now,
 }) {
   if (!eventTime.isAfter(now)) return null;
-  final lead = eventTime.subtract(
-    Duration(minutes: leadMinutes <= 0 ? 0 : leadMinutes),
-  );
+  final lead = _leadAt(eventTime, leadMinutes);
   // +5 秒是为了让下游的 schedule() 一定落在未来（它对过去的时刻会抛错）。
   return lead.isAfter(now) ? lead : now.add(const Duration(seconds: 5));
 }
 
-bool _matchesParity(Course course, DateTime day) {
+/// 严格版：提前量算出来已经过去，就返回 null——不退化、不补发。
+///
+/// 打开 App 时的整体重排必须用这个版本。原因是 [resolveRemindAt] 的退化分支
+/// 每次调用都会重新算出一个「5 秒后」：如果重排用它，用户 15:16 打开一次
+/// App 就响一次、15:17 再打开又响一次，一条早该过去的提醒能无限重播。
+/// 退化只适合「用户刚保存这条数据」的那一次，不适合周期性同步。
+DateTime? plannedRemindAt({
+  required DateTime eventTime,
+  required int leadMinutes,
+  required DateTime now,
+}) {
+  if (!eventTime.isAfter(now)) return null;
+  final lead = _leadAt(eventTime, leadMinutes);
+  return lead.isAfter(now) ? lead : null;
+}
+
+DateTime _leadAt(DateTime eventTime, int leadMinutes) => eventTime.subtract(
+  Duration(minutes: leadMinutes <= 0 ? 0 : leadMinutes),
+);
+
+/// 这门课在指定日期上不上（单双周过滤）。
+///
+/// 周次从学期开始那天算第 1 周，和第几周的单双没关系的说法都按这个来。
+bool matchesWeekParity(Course course, DateTime day) {
   if (course.weekParity == 0) return true;
   final weekIndex =
       day.difference(parseDate(course.semesterStart)).inDays ~/ 7 + 1;
@@ -176,7 +197,7 @@ List<TimelineEntry> expandCourse(Course course, DateTime day) {
   final end = parseDate(course.semesterEnd);
   if (target.isBefore(start) || target.isAfter(end)) return const [];
   if (target.weekday != course.dayOfWeek) return const [];
-  if (!_matchesParity(course, target)) return const [];
+  if (!matchesWeekParity(course, target)) return const [];
 
   final begin = parseHm(course.startTime);
   return [

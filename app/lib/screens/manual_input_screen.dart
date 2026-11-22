@@ -7,6 +7,7 @@ import '../models/task.dart';
 import '../models/timeline.dart';
 import '../services/db_service.dart';
 import '../services/notification_service.dart';
+import '../services/reminder_service.dart';
 import '../services/settings_service.dart';
 import '../widgets/masked_formatters.dart';
 
@@ -187,8 +188,10 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
   }
 
   /// 提醒 id 规则必须与编辑/删除时一致，否则旧提醒取消不掉。
-  int _eventScheduleId(int id) => 100000 + id;
-  int _taskScheduleId(int id) => 200000 + id;
+  /// 通知 id 的号段规则统一放在 [ReminderService]，这里只做转调，
+  /// 免得两个地方各算一套、号段撞了就互相覆盖。
+  int _eventScheduleId(int id) => ReminderService.eventNotificationId(id);
+  int _taskScheduleId(int id) => ReminderService.taskNotificationId(id);
 
   Future<void> _save() async {
     final title = _title.text.trim();
@@ -321,11 +324,16 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
             semesterEnd: semesterEndText,
             weekParity: _weekParity,
           );
+          final int id;
           if (_editingId != null) {
             await widget.db.updateCourse(item);
+            id = _editingId!;
           } else {
-            await widget.db.insertCourse(item);
+            id = await widget.db.insertCourse(item);
           }
+          // 课程以前只入库不排提醒，导完课表到点手机不响。现在按未来
+          // 8 周的每个课时排一次性闹钟（单双周、学期边界都算进去）。
+          await _syncCourse(id);
           break;
       }
       if (mounted) Navigator.of(context).pop(true);
@@ -399,12 +407,27 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
           await widget.db.deleteTask(id);
           break;
         case InputType.course:
+          // 先撤闹钟再删数据：删完就查不到这门课排过几条了。
+          await ReminderService(widget.notifications).cancelCourse(id);
           await widget.db.deleteCourse(id);
           break;
       }
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       setState(() => _message = '删除失败：$e');
+    }
+  }
+
+  /// 保存课程后立刻排这门课的提醒（新建和改名改时间都走这里，
+  /// 重排会顺手把多出来的旧槽位撤掉）。
+  Future<void> _syncCourse(int id) async {
+    try {
+      final course = await widget.db.findCourse(id);
+      if (course == null) return;
+      await ReminderService(widget.notifications).syncCourse(course);
+    } catch (e) {
+      // 数据已落盘；提醒失败不应回滚录入。
+      _message = '已保存，但课程提醒设置失败：$e';
     }
   }
 

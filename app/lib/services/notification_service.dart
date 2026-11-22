@@ -3,13 +3,15 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+import 'reminder_sink.dart';
+
 /// V0 通知服务（单例）。
 ///
 /// 封装四件事：初始化、申请权限、定时调度、即时测试通知。
 /// 注意 FLN 23.x 的 API 与旧教程不同：
 /// - initialize 用命名参数 settings:
 /// - zonedSchedule 必填 androidScheduleMode:
-class NotificationService {
+class NotificationService implements ReminderSink {
   NotificationService._internal();
 
   static final NotificationService instance = NotificationService._internal();
@@ -108,6 +110,7 @@ class NotificationService {
   );
 
   /// 在指定绝对时间调度一条通知。
+  @override
   Future<void> schedule({
     required int id,
     required String title,
@@ -161,6 +164,7 @@ class NotificationService {
     );
   }
 
+  @override
   Future<void> cancel(int id) => _plugin.cancel(id: id);
   Future<void> cancelAll() => _plugin.cancelAll();
 }

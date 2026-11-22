@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/timeline.dart';
 import '../services/db_service.dart';
 import '../services/notification_service.dart';
+import '../services/reminder_service.dart';
 import '../widgets/timeline_item.dart';
 
 class ScheduleScreen extends StatefulWidget {
@@ -47,6 +48,15 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   Future<void> _toggleTask(TimelineEntry entry) async {
     await widget.db.setTaskDone(entry.sourceId, done: true);
+    // 勾完了就不该再响。以前只在保存时排闹钟、勾完成时不撤，
+    // 结果「已经做完的作业」到点还会弹出来。
+    try {
+      await widget.notifications.cancel(
+        ReminderService.taskNotificationId(entry.sourceId),
+      );
+    } catch (_) {
+      // 没有这条提醒也算正常。
+    }
     await _load();
   }
 
