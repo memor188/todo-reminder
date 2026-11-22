@@ -6,6 +6,7 @@ import '../models/period_table.dart';
 import '../models/timeline.dart';
 import '../services/db_service.dart';
 import '../services/settings_service.dart';
+import '../theme.dart';
 import '../widgets/timeline_item.dart';
 
 /// 课表周网格（2026-11-22 按用户给的参考图重做）。
@@ -359,8 +360,8 @@ class _TimetableScreenState extends State<TimetableScreen> {
     double? nowLineTop,
   }) {
     final slots = layoutDay(_entriesFor(day));
-    // 横线是背景，不应该和课程块抢注意力；比之前再淡一档。
-    const line = Color(0xFFF2F2F2);
+    // 横线是背景，不应该和课程块抢注意力。跟着象牙白背景一起调暖。
+    const line = warmDivider;
     return Container(
       width: width,
       height: _totalHeight,
@@ -409,7 +410,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
     final Color fill = switch (entry.type) {
       EntryType.course => isGhost ? base.withAlpha(46) : base.withAlpha(232),
       EntryType.event => base.withAlpha(150),
-      EntryType.task => Colors.white,
+      EntryType.task => ivoryBackground,
     };
     final Color textColor = switch (entry.type) {
       EntryType.course => isGhost ? Colors.black45 : const Color(0xFF2B2B2B),
@@ -551,7 +552,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
                       vertical: tagPadV,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withAlpha(200),
+                      color: ivoryBackground.withAlpha(200),
                       borderRadius: BorderRadius.circular(3),
                     ),
                     child: Text(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/course.dart';
 import '../models/timeline.dart';
+import '../theme.dart';
 
 Color colorFromHex(String? hex) {
   if (hex == null || hex.isEmpty) return const Color(0xFF1976D2);
@@ -151,7 +152,7 @@ class TimelineItem extends StatelessWidget {
       // （哪怕 alpha 只有 30）卡片等于半透明，自己的阴影会从底下透上来，
       // 淡粉淡绿全变成一片灰紫——真机截图一眼就看得出来。
       color: entry.type == EntryType.course
-          ? Color.alphaBlend(color.withAlpha(46), Colors.white)
+          ? Color.alphaBlend(color.withAlpha(46), ivoryBackground)
           : null,
       // Material 3 的 Card 会再叠一层 surfaceTint（主题紫），这里关掉。
       surfaceTintColor: Colors.transparent,

@@ -4,6 +4,7 @@ import '../models/timeline.dart';
 import '../services/db_service.dart';
 import '../services/notification_service.dart';
 import '../services/reminder_service.dart';
+import '../theme.dart';
 import '../widgets/timeline_item.dart';
 
 /// 日程页（2026-11-22 改版）。
@@ -193,7 +194,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
         child: Container(
           decoration: BoxDecoration(
-            color: isSelected ? Colors.blue : Colors.grey.shade200,
+            color: isSelected ? Colors.blue : warmChip,
             borderRadius: BorderRadius.circular(10),
           ),
           child: Column(

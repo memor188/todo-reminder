@@ -13,6 +13,7 @@ import 'services/db_service.dart';
 import 'services/notification_service.dart';
 import 'services/reminder_service.dart';
 import 'services/settings_service.dart';
+import 'theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -136,7 +137,24 @@ class _AppState extends State<App> {
       title: '待办',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF1976D2)),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF1976D2),
+          surface: ivoryBackground,
+        ),
+        scaffoldBackgroundColor: ivoryBackground,
+        // 事件/任务卡走主题色，课程卡由 TimelineItem 自己上淡色。
+        // surfaceTint 必须关掉，否则 M3 又叠一层主题紫把象牙白染灰。
+        cardTheme: const CardThemeData(
+          color: ivoryBackground,
+          surfaceTintColor: Colors.transparent,
+        ),
+        // 底栏默认走 M3 的 surfaceContainer（偏冷灰蓝），不跟着主题背景走，
+        // 在象牙白页面上会像贴了块冷色板，显式改成同色。
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: ivoryBackground,
+          indicatorColor: const Color(0xFFDCE8FA),
+          surfaceTintColor: Colors.transparent,
+        ),
         useMaterial3: true,
       ),
       home: Scaffold(

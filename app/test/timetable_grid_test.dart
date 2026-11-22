@@ -5,6 +5,7 @@ import 'package:todo_app/main.dart';
 import 'package:todo_app/models/course.dart';
 import 'package:todo_app/models/timeline.dart';
 import 'package:todo_app/screens/timetable_screen.dart';
+import 'package:todo_app/theme.dart';
 import 'package:todo_app/services/db_service.dart';
 import 'package:todo_app/services/notification_service.dart';
 import 'package:todo_app/services/settings_service.dart';
@@ -303,7 +304,7 @@ void main() {
       );
       final card = tester.widget<Card>(find.byType(Card));
       // 卡片底色是「淡色 + 白底」混出来的不透明色（带 alpha 会被自己的阴影透脏）
-      expect(card.color, Color.alphaBlend(swatch.withAlpha(46), Colors.white));
+      expect(card.color, Color.alphaBlend(swatch.withAlpha(46), ivoryBackground));
     });
 
     testWidgets('没传配色时回落到课表调色板，不是老的默认蓝', (tester) async {
@@ -311,12 +312,12 @@ void main() {
       final card = tester.widget<Card>(find.byType(Card));
       final legacyBlue = Color.alphaBlend(
         const Color(0xFF1976D2).withAlpha(46),
-        Colors.white,
+        ivoryBackground,
       );
       expect(card.color, isNot(legacyBlue));
       expect(
         coursePalette.map(
-          (c) => Color.alphaBlend(c.withAlpha(46), Colors.white),
+          (c) => Color.alphaBlend(c.withAlpha(46), ivoryBackground),
         ),
         contains(card.color),
       );

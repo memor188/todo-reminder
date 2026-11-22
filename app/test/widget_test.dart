@@ -12,6 +12,7 @@ import 'package:todo_app/models/timeline.dart';
 import 'package:todo_app/services/db_service.dart';
 import 'package:todo_app/services/notification_service.dart';
 import 'package:todo_app/services/settings_service.dart';
+import 'package:todo_app/theme.dart';
 
 class FakeDbService extends DbService {
   AppData data = const AppData(courses: [], events: [], tasks: []);
@@ -82,6 +83,15 @@ void main() {
       tester.view.resetDevicePixelRatio();
     });
   }
+
+  testWidgets('整体背景是象牙白，不是纯白', (WidgetTester tester) async {
+    expect(ivoryBackground, isNot(Colors.white));
+    await tester.pumpWidget(buildApp(db: FakeDbService()));
+    await tester.pumpAndSettle();
+    final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
+    expect(app.theme?.scaffoldBackgroundColor, ivoryBackground);
+    expect(app.theme?.colorScheme.surface, ivoryBackground);
+  });
 
   testWidgets('V1 首页有三 tab、添加按钮和空日程提示', (WidgetTester tester) async {
     await tester.pumpWidget(buildApp(db: FakeDbService()));
