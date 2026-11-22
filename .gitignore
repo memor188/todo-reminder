@@ -32,6 +32,9 @@ build_shots/
 build_log.txt
 tools/ai_probe_out.txt
 
+# 安装包留档（README 入库，apk 太大不入库）
+releases/**/*.apk
+
 # 环境变量与密钥（绝不入库）
 .env
 .env.*
