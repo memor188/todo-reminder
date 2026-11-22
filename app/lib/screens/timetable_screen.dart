@@ -39,10 +39,6 @@ double? nowLineTopFor(
   return (minutes - gridStart) * pxPerMinute;
 }
 
-/// 把调色板色压暗一档，做色块左边的竖条。
-/// 不另写一套颜色表——换配色时只要改 coursePalette，这里会自动跟上。
-Color deepen(Color color) => Color.alphaBlend(const Color(0x2E000000), color);
-
 class TimetableScreen extends StatefulWidget {
   const TimetableScreen({
     super.key,
@@ -214,7 +210,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
               child: Center(
                 child: Text(
                   '${monday.month}月',
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  style: const TextStyle(fontSize: 11, color: warmInkSoft),
                 ),
               ),
             ),
@@ -268,7 +264,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
       children: [
         Text(
           '一二三四五六日'[day.weekday - 1],
-          style: const TextStyle(fontSize: 11, color: Colors.grey),
+          style: const TextStyle(fontSize: 11, color: warmInkSoft),
         ),
         const SizedBox(height: 4),
         Container(
@@ -284,7 +280,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
             style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w600,
-              color: isToday ? Colors.white : Colors.black87,
+              color: isToday ? Colors.white : warmInk,
             ),
           ),
         ),
@@ -326,7 +322,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
-                      color: Color(0xFF222222),
+                      color: warmInk,
                     ),
                   ),
                   Text(
@@ -334,7 +330,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
                     style: const TextStyle(
                       fontSize: 9,
                       height: 1.2,
-                      color: Color(0xFF9A9A9A),
+                      color: warmInkFaint,
                     ),
                   ),
                   Text(
@@ -342,7 +338,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
                     style: const TextStyle(
                       fontSize: 9,
                       height: 1.2,
-                      color: Color(0xFF9A9A9A),
+                      color: warmInkFaint,
                     ),
                   ),
                 ],
@@ -406,16 +402,23 @@ class _TimetableScreenState extends State<TimetableScreen> {
     final slotWidth = columnWidth / slot.columns;
     final left = slotWidth * slot.column;
 
-    // 课程用低饱和底色 + 深色字；事件用浓一点的底色 + 白字；任务留白描边。
+    // 2026-11-23「自然融合」：课程块不再铺一层 91% 不透明的原色（像贴纸），
+    // 而是先和象牙白按 70:30 混成不透明色。混完之后块和背景是同一个底子，
+    // 只留下色相差别，不再有硬邦邦的边界。
+    // 事件型要一眼抓住注意力，保留浓底 + 白字；任务型仍是留白描边。
+    // 「非本周」换个思路：不再只是把原色调淡，而是压到暖灰底上，
+    // 让它读起来是「这节课不在本周」而不是「这门课颜色很浅」。
     final Color fill = switch (entry.type) {
-      EntryType.course => isGhost ? base.withAlpha(46) : base.withAlpha(232),
+      EntryType.course => isGhost
+          ? Color.alphaBlend(base.withAlpha(30), warmChip)
+          : Color.alphaBlend(base.withAlpha(178), ivoryBackground),
       EntryType.event => base.withAlpha(150),
       EntryType.task => ivoryBackground,
     };
     final Color textColor = switch (entry.type) {
-      EntryType.course => isGhost ? Colors.black45 : const Color(0xFF2B2B2B),
+      EntryType.course => isGhost ? warmInkFaint : warmInk,
       EntryType.event => Colors.white,
-      EntryType.task => Colors.black87,
+      EntryType.task => warmInk,
     };
 
     // 这两条阈值是**绝对 dp**，不会跟着 pxPerMinute 自动缩放。
@@ -457,10 +460,6 @@ class _TimetableScreenState extends State<TimetableScreen> {
     final tagPadV = compact ? 0.0 : 1.0;
     final tagHeight = showGhostTag ? tagFont * 1.1 + tagPadV : 0.0;
 
-    // 左侧竖条在块内单独画（不能做成四边异色 border + 圆角，Flutter 会抛异常）
-    final barWidth = entry.type == EntryType.task ? 0.0 : (isGhost ? 2.0 : 3.0);
-    final barColor = isGhost ? base.withAlpha(150) : deepen(base);
-
     final innerHeight = height - 2 * padV;
     final reserved =
         (showLocation ? (locLineHeight + locTop) * locMaxLines : 0) + tagHeight;
@@ -471,8 +470,9 @@ class _TimetableScreenState extends State<TimetableScreen> {
 
     return Positioned(
       top: top,
-      left: left + 1,
-      width: slotWidth - 2,
+      // 列间距 2dp → 6dp：色块之间留出象牙白呼吸缝，连成一片的「色墙」就散开了。
+      left: left + 3,
+      width: slotWidth - 6,
       height: height,
       child: GestureDetector(
         key: Key('grid_${entry.key}'),
@@ -480,32 +480,29 @@ class _TimetableScreenState extends State<TimetableScreen> {
             ? null
             : () => widget.onOpenEntry!(entry),
         child: Container(
-          // 竖条要跟着圆角裁切，所以这里开 antiAlias。
+          // 去掉左侧深色竖条后不再需要裁切子元素，但保留 clip 以防圆角
+          // 和描边在窄块上出现毛边。
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: fill,
             border: entry.type == EntryType.task
-                ? Border.all(color: Colors.grey.shade400)
+                ? Border.all(color: const Color(0xFFD6CCBC))
                 : (isGhost
-                    ? Border.all(color: base.withAlpha(90), width: 0.8)
+                    ? Border.all(
+                        color: Color.alphaBlend(base.withAlpha(70), warmChip),
+                        width: 0.8,
+                      )
                     : null),
-            borderRadius: BorderRadius.circular(9),
+            borderRadius: BorderRadius.circular(12),
           ),
           child: Stack(
             children: [
-              if (entry.type != EntryType.task)
-                Positioned(
-                  left: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: barWidth,
-                  child: ColoredBox(color: barColor),
-                ),
               Positioned.fill(
                 child: Padding(
-                  // 文字从竖条右侧 4dp 开始，四边留白才均匀
+                  // 没有竖条了，四边统一 4dp。竖条省下的 3dp 刚好补回
+                  // 列间距挤掉的空间，长课名不会因此多断一行。
                   padding: EdgeInsets.only(
-                    left: barWidth + 4,
+                    left: 4,
                     right: 4,
                     top: padV,
                     bottom: padV,
@@ -540,7 +537,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
                         height: 1.2,
                         color: entry.type == EntryType.event
                             ? Colors.white70
-                            : const Color(0xFF4A4A4A),
+                            : (isGhost ? warmInkFaint : warmInkSoft),
                       ),
                     ),
                   ),
@@ -552,7 +549,8 @@ class _TimetableScreenState extends State<TimetableScreen> {
                       vertical: tagPadV,
                     ),
                     decoration: BoxDecoration(
-                      color: ivoryBackground.withAlpha(200),
+                      // 用不透明色：半透明小-chip 压在灰块上会被阴影/底色透脏
+                      color: ivoryBackground,
                       borderRadius: BorderRadius.circular(3),
                     ),
                     child: Text(
@@ -560,7 +558,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
                       style: TextStyle(
                         fontSize: tagFont,
                         height: 1.1, // 和上面 tagHeight 的估算保持一致
-                        color: Colors.black45,
+                        color: warmInkFaint,
                       ),
                     ),
                   ),

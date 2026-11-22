@@ -146,6 +146,54 @@ void main() {
     expect(find.text('ELC1综合英语与沟通能力'), findsOneWidget);
   });
 
+  // 2026-11-23「自然融合」回归：课程块若退回高不透明原色 + 左侧深色竖条，
+  // 真机上看就是一张贴纸压在象牙白上。这里把混色、无竖条、圆角一次锁住。
+  testWidgets('课程块与象牙白混色，没有深色竖条', (tester) async {
+    useTallScreen(tester);
+    final m = monday();
+    const base = Color(0xFF1976D2);
+    await tester.pumpWidget(
+      buildApp([
+        Course(
+          id: 99,
+          title: '融合测试课',
+          color: '#1976D2',
+          dayOfWeek: 1,
+          startTime: '08:00',
+          endTime: '09:40',
+          location: 'E201',
+          weeks: '1-18',
+          semesterStart: d(m.subtract(const Duration(days: 21))),
+          semesterEnd: d(m.add(const Duration(days: 140))),
+        ),
+      ]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('课表'));
+    await tester.pumpAndSettle();
+
+    final key = Key('grid_course_99_${d(m)}');
+    final detector = tester.widget<GestureDetector>(find.byKey(key));
+    final decoration = (detector.child! as Container).decoration! as BoxDecoration;
+
+    // 70% 原色 + 30% 象牙白，混成**不透明**色（alpha 恒为 255）
+    expect(
+      decoration.color,
+      Color.alphaBlend(base.withAlpha(178), ivoryBackground),
+    );
+    expect(decoration.color!.alpha, 255);
+    // 没有深色竖条：块内不应再出现 ColoredBox
+    expect(decoration.border, isNull);
+    expect(
+      find.descendant(
+        of: find.byKey(key),
+        matching: find.byWidgetPredicate((w) => w is ColoredBox),
+      ),
+      findsNothing,
+    );
+    expect((decoration.borderRadius! as BorderRadius).topLeft.x, 12);
+  });
+
   testWidgets('地点按 @教室 显示，和参考图一致', (tester) async {
     useTallScreen(tester);
     final m = monday();
