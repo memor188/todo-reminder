@@ -98,8 +98,8 @@ List<CourseReminder> planCourseReminders({
     final target = DateTime(day.year, day.month, day.day);
     if (target.isBefore(first)) continue;
     if (target.isAfter(last)) break;
-    if (target.weekday != course.dayOfWeek) continue;
-    if (!matchesWeekParity(course, target)) continue;
+    // 周几、周次集合（或单双周）、学期区间统一在这里判，和课表显示保持一致。
+    if (!courseMeetsOn(course, target)) continue;
 
     final startAt = DateTime(
       target.year,

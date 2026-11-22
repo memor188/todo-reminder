@@ -124,6 +124,30 @@ class PeriodTable {
     return _spanOf(cleaned.split(''));
   }
 
+  /// 按「第 n 节」的序号取跨度（n 从 1 起，对应作息表第 n 行）。
+  ///
+  /// 教务系统导出的 .xls 用的是 `01`、`03-04-05`、`11-12-13` 这种编号，
+  /// 和标签 `1..9 / 0 / A / B / C` 不是一套写法（第 10 节写作 0，晚上写作 A/B/C），
+  /// 只能按顺序对：第 11 个 = 作息表第 11 行的标签 `A`。
+  /// 超出作息表行数返回 null，由调用方提示用户补作息表。
+  PeriodSpan? spanByNumbers(Iterable<int> numbers) {
+    final indexes = <int>[];
+    for (final n in numbers) {
+      final index = n - 1;
+      if (index < 0 || index >= slots.length) return null;
+      indexes.add(index);
+    }
+    if (indexes.isEmpty) return null;
+    indexes.sort();
+    return PeriodSpan(
+      labels: [
+        for (var i = indexes.first; i <= indexes.last; i++) slots[i].label,
+      ],
+      start: slots[indexes.first].start,
+      end: slots[indexes.last].end,
+    );
+  }
+
   /// 从若干标签里取「最靠前那节的开始」到「最靠后那节的结束」。
   PeriodSpan? _spanOf(List<String> labels) {
     final indexes = <int>[];

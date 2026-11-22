@@ -34,7 +34,19 @@ class SettingsService {
   static const String keyPeriodTable = 'period_table';
 
   static const String defaultBaseUrl = 'https://api.deepseek.com';
-  static const String defaultModel = 'deepseek-chat';
+
+  /// DeepSeek 现行模型名。
+  ///
+  /// `deepseek-chat` 与 `deepseek-reasoner` 已于 2026-07-24 下线（虽然还能应答，
+  /// 但官方模型列表里没有了，而且**不接受图片**）。识图必须用 `deepseek-flash`
+  /// （V4.1-Flash，原生多模态）。
+  static const String defaultModel = 'deepseek-flash';
+
+  /// 已下线的旧模型名。只在官方域名下自动纠正，用户换成别家供应商时不动他的配置。
+  static const Set<String> retiredDeepSeekModels = {
+    'deepseek-chat',
+    'deepseek-reasoner',
+  };
 
   static Future<SettingsService> load() async =>
       SettingsService(await SharedPreferences.getInstance());
@@ -42,8 +54,19 @@ class SettingsService {
   String get baseUrl =>
       _prefs?.getString(keyBaseUrl) ?? _memory[keyBaseUrl] ?? defaultBaseUrl;
   String get apiKey => _prefs?.getString(keyApiKey) ?? _memory[keyApiKey] ?? '';
-  String get model =>
-      _prefs?.getString(keyModel) ?? _memory[keyModel] ?? defaultModel;
+
+  String get model {
+    final raw =
+        _prefs?.getString(keyModel) ?? _memory[keyModel] ?? defaultModel;
+    if (raw.trim().isEmpty) return defaultModel;
+    // 老版本把 deepseek-chat 存进了手机，直接沿用会导致识图失败，
+    // 所以读出来时就纠正（官方域名下才纠正）。
+    if (baseUrl.contains('deepseek.com') &&
+        retiredDeepSeekModels.contains(raw.trim())) {
+      return defaultModel;
+    }
+    return raw;
+  }
 
   Map<String, String> toMap() => {
     keyBaseUrl: baseUrl,

@@ -1,6 +1,7 @@
 import 'course.dart';
 import 'event_item.dart';
 import 'task.dart';
+import 'week_set.dart';
 
 enum EntryType { course, event, task }
 
@@ -205,13 +206,40 @@ DateTime _leadAt(DateTime eventTime, int leadMinutes) => eventTime.subtract(
   Duration(minutes: leadMinutes <= 0 ? 0 : leadMinutes),
 );
 
-/// 这门课在指定日期上不上（单双周过滤）。
+/// 这门课第 1 周从哪一天算起。
 ///
-/// 周次从学期开始那天算第 1 周，和第几周的单双没关系的说法都按这个来。
+/// 学期方案的开始日期常常填「开学那天」（比如 9 月 1 日，周二），但学校里的
+/// 「第 3 周」是从那一周的周一算的。取所在周的周一当锚点，周次集合和单双周
+/// 才能和教务系统对上。
+DateTime courseWeekAnchor(Course course) {
+  final start = parseDate(course.semesterStart);
+  final day = DateTime(start.year, start.month, start.day);
+  return day.subtract(Duration(days: start.weekday - 1));
+}
+
+/// 这门课在指定日期上不上：学期区间 + 周几 + 周次集合（没有集合就看单双周）。
+bool courseMeetsOn(Course course, DateTime day) {
+  final target = DateTime(day.year, day.month, day.day);
+  final start = parseDate(course.semesterStart);
+  final end = parseDate(course.semesterEnd);
+  if (target.isBefore(start) || target.isAfter(end)) return false;
+  if (target.weekday != course.dayOfWeek) return false;
+
+  final weeks = WeekSet.tryParse(course.weeks);
+  if (weeks != null) {
+    final index = target.difference(courseWeekAnchor(course)).inDays ~/ 7 + 1;
+    return weeks.contains(index);
+  }
+  return matchesWeekParity(course, target);
+}
+
+/// 单双周判定（老数据只有 week_parity 时用）。
+///
+/// 周次从学期所在周的周一开始算第 1 周。
 bool matchesWeekParity(Course course, DateTime day) {
   if (course.weekParity == 0) return true;
   final weekIndex =
-      day.difference(parseDate(course.semesterStart)).inDays ~/ 7 + 1;
+      day.difference(courseWeekAnchor(course)).inDays ~/ 7 + 1;
   final isOdd = weekIndex.isOdd;
   return course.weekParity == 1 ? isOdd : !isOdd;
 }
@@ -219,11 +247,7 @@ bool matchesWeekParity(Course course, DateTime day) {
 /// 把周期课程在指定日期展开成一个显示条目。
 List<TimelineEntry> expandCourse(Course course, DateTime day) {
   final target = DateTime(day.year, day.month, day.day);
-  final start = parseDate(course.semesterStart);
-  final end = parseDate(course.semesterEnd);
-  if (target.isBefore(start) || target.isAfter(end)) return const [];
-  if (target.weekday != course.dayOfWeek) return const [];
-  if (!matchesWeekParity(course, target)) return const [];
+  if (!courseMeetsOn(course, target)) return const [];
 
   final begin = parseHm(course.startTime);
   return [

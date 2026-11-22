@@ -28,7 +28,7 @@ class DbService {
     final dir = await getDatabasesPath();
     final db = await openDatabase(
       p.join(dir, 'todo_app.db'),
-      version: 4,
+      version: 5,
       onCreate: _createTables,
       onUpgrade: _upgradeTables,
     );
@@ -51,7 +51,9 @@ class DbService {
         note TEXT,
         semester_start TEXT NOT NULL,
         semester_end TEXT NOT NULL,
-        week_parity INTEGER NOT NULL DEFAULT 0
+        week_parity INTEGER NOT NULL DEFAULT 0,
+        teacher TEXT,
+        weeks TEXT
       )
     ''');
     await db.execute('''
@@ -84,6 +86,7 @@ class DbService {
   /// v1 → v2：课程补 note 字段（课程也要能写「带教材」这类备注）。
   /// v2 → v3：事件和任务补 remind_before_minutes（提前量，V3）。
   /// v3 → v4：事件和任务补 priority（优先级标签，V3）。
+  /// v4 → v5：课程补 teacher 和 weeks（教师、精确周次，V4 课表导入）。
   ///
   /// 每步都用 PRAGMA 先查列，避免「列已存在」时 ALTER 报错。
   Future<void> _upgradeTables(
@@ -107,6 +110,12 @@ class DbService {
         'remind_before_minutes',
         'INTEGER NOT NULL DEFAULT 0',
       );
+    }
+    if (oldVersion < 5) {
+      // 真实课表的周次是任意集合（3-12,15-18），week_parity 表达不了；
+      // teacher 则来自教务系统导出文件。
+      await _addColumnIfMissing(db, 'courses', 'teacher', 'TEXT');
+      await _addColumnIfMissing(db, 'courses', 'weeks', 'TEXT');
     }
     if (oldVersion < 4) {
       await _addColumnIfMissing(

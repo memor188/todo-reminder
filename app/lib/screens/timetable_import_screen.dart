@@ -1,3 +1,6 @@
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../models/course.dart';
@@ -7,21 +10,46 @@ import '../models/timeline.dart';
 import '../services/ai_service.dart';
 import '../services/db_service.dart';
 import '../services/settings_service.dart';
+import '../services/timetable_file_parser.dart';
+import '../services/xls_reader.dart';
 import '../widgets/masked_formatters.dart';
 
-/// 课表粘贴导入（V3）。
+/// 用户选中的课表文件：图片、`.xls`、或纯文本表格。
 ///
-/// 分工：AI 只把一堆文字拆成「周几 + 第几节」，节次换算成钟点由本机作息表做。
-/// 导入前一定过一遍预览，绝不直接把 AI 输出写库——这是全项目一以贯之的规矩。
+/// 抽成值对象是为了让 widget 测试能塞假文件进来——`FilePicker` 走平台通道，
+/// 测试环境里调不动。真机上由 `_pickWithFilePicker` 填这个对象。
+class PickedTimetableFile {
+  const PickedTimetableFile({required this.name, required this.bytes});
+
+  final String name;
+  final Uint8List bytes;
+}
+
+/// 课表导入（V3 粘贴文字 / V4 图片与文件）。
+///
+/// 三条入口，产出同一种 [AiCourseDraft]，后面的预览与入库完全共用：
+/// - 粘贴文字 → AI 拆结构；
+/// - 截图/照片 → AI 识图（要 `deepseek-flash` 这类多模态模型）；
+/// - 教务系统导出的 `.xls` → 本机直接解析，不联网、不花钱、比模型猜得准。
+///
+/// 导入前一定过一遍预览，绝不直接把解析结果写库——这是全项目一以贯之的规矩。
 class TimetableImportScreen extends StatefulWidget {
   const TimetableImportScreen({
     super.key,
     required this.settings,
     required this.db,
+    this.pickFile,
+    this.aiFactory,
   });
 
   final SettingsService settings;
   final DbService db;
+
+  /// 测试注入点：不给就用系统文件选择器。
+  final Future<PickedTimetableFile?> Function()? pickFile;
+
+  /// 测试注入点：不给就按「我的」页里的配置造一个真的 [AiService]。
+  final AiService Function()? aiFactory;
 
   @override
   State<TimetableImportScreen> createState() => _TimetableImportScreenState();
@@ -35,6 +63,23 @@ class _ImportRow {
 }
 
 class _TimetableImportScreenState extends State<TimetableImportScreen> {
+  /// 选文件时放开这些后缀。`.xlsx` 故意留着——好给一句「另存为 .xls」的提示，
+  /// 让选择器直接把它藏了，用户只会以为 App 坏了。
+  static const List<String> pickableExtensions = [
+    'xls',
+    'xlsx',
+    'csv',
+    'tsv',
+    'txt',
+    'md',
+    'html',
+    'htm',
+    'png',
+    'jpg',
+    'jpeg',
+    'webp',
+  ];
+
   final _input = TextEditingController();
   List<_ImportRow> _rows = const [];
   List<SemesterPlan> _plans = const [];
@@ -43,6 +88,9 @@ class _TimetableImportScreenState extends State<TimetableImportScreen> {
   bool _importing = false;
   String? _message;
   String? _error;
+
+  /// 上次读进来的文件名，显示在提示里，让人知道这批课是从哪儿来的。
+  String? _sourceName;
 
   @override
   void initState() {
@@ -62,11 +110,21 @@ class _TimetableImportScreenState extends State<TimetableImportScreen> {
 
   PeriodTable get _table => widget.settings.periodTable;
 
+  AiService _service() =>
+      widget.aiFactory?.call() ??
+      AiService(
+        baseUrl: widget.settings.baseUrl,
+        apiKey: widget.settings.apiKey,
+        model: widget.settings.model,
+      );
+
+  // ---------------------------------------------------------------- 文字粘贴
+
   Future<void> _parse() async {
     final text = _input.text.trim();
     if (text.isEmpty) {
       setState(() {
-        _error = '先把课表文字粘进来';
+        _error = '先把课表文字粘进来，或者用「选文件 / 截图」';
         _message = null;
       });
       return;
@@ -75,25 +133,12 @@ class _TimetableImportScreenState extends State<TimetableImportScreen> {
       _busy = true;
       _error = null;
       _message = null;
+      _sourceName = null;
     });
     try {
-      final service = AiService(
-        baseUrl: widget.settings.baseUrl,
-        apiKey: widget.settings.apiKey,
-        model: widget.settings.model,
-      );
-      final drafts = await service.parseTimetable(text, periodTable: _table);
+      final drafts = await _service().parseTimetable(text, periodTable: _table);
       if (!mounted) return;
-      final bad = drafts.where((draft) => !draft.resolved).length;
-      setState(() {
-        _rows = [
-          for (final draft in drafts)
-            _ImportRow(draft: draft, selected: draft.resolved),
-        ];
-        _message = bad == 0
-            ? '解析出 ${drafts.length} 门课，核对后导入'
-            : '解析出 ${drafts.length} 门课，其中 $bad 门的时间认不出来，需要手动补';
-      });
+      _applyDrafts(drafts);
     } on AiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (e) {
@@ -101,6 +146,166 @@ class _TimetableImportScreenState extends State<TimetableImportScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  // ------------------------------------------------------------ 文件 / 图片
+
+  Future<void> _pickAndParse() async {
+    setState(() {
+      _error = null;
+      _message = null;
+    });
+    PickedTimetableFile? picked;
+    try {
+      picked = await (widget.pickFile ?? _pickWithFilePicker)();
+    } catch (e) {
+      if (mounted) setState(() => _error = '打开文件选择器失败：$e');
+      return;
+    }
+    if (picked == null || !mounted) return;
+    await _parseFile(picked);
+  }
+
+  /// 系统文件选择器。
+  ///
+  /// file_picker 13 起 `pickFile` 直接返回 `PlatformFile`，字节用
+  /// `readAsBytes()` 现读——老版本那个「withData + bytes 字段」已经没有了。
+  /// 课表文件才几十 KB，整份读进内存没压力。
+  static Future<PickedTimetableFile?> _pickWithFilePicker() async {
+    final file = await FilePicker.pickFile(
+      type: FileType.custom,
+      allowedExtensions: pickableExtensions,
+    );
+    if (file == null) return null;
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) return null;
+    return PickedTimetableFile(name: file.name, bytes: bytes);
+  }
+
+  Future<void> _parseFile(PickedTimetableFile file) async {
+    final lower = file.name.toLowerCase();
+    setState(() {
+      _busy = true;
+      _error = null;
+      _message = null;
+      _sourceName = file.name;
+    });
+    try {
+      if (lower.endsWith('.xlsx')) {
+        setState(
+          () => _error =
+              '这是新版 .xlsx，本机只认老版 .xls。'
+              '在 Excel / WPS 里「另存为 → Excel 97-2003 工作簿(*.xls)」再导一次，'
+              '或者直接从教务系统导出 .xls / CSV。',
+        );
+        return;
+      }
+      if (lower.endsWith('.xls')) {
+        _parseXls(file);
+      } else if (_isImage(lower)) {
+        await _parseImage(file, lower);
+      } else if (isTextTimetable(lower)) {
+        await _parseTextFile(file);
+      } else {
+        setState(() => _error = '不认识的文件类型：${file.name}');
+      }
+    } on XlsFormatException catch (e) {
+      if (mounted) setState(() => _error = '.xls 读不出来：${e.message}');
+    } on AiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (e) {
+      if (mounted) setState(() => _error = '读文件失败：$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// `.xls` 走本地解析：不联网、不花钱，也不会把课表内容发给模型。
+  void _parseXls(PickedTimetableFile file) {
+    if (_table.isEmpty) {
+      setState(() => _error = '作息表是空的，节次换算不了。先去「我的 → 作息表」配一节');
+      return;
+    }
+    final sheet = readFirstXlsSheet(file.bytes);
+    final drafts = coursesFromXlsSheet(sheet, _table);
+    if (drafts.isEmpty) {
+      setState(
+        () => _error =
+            '这个 .xls 里没找到课程格子。可能是「学生个人课表」以外的表，'
+            '或者节次列不是「一(01,02)」这种写法——那就把内容复制出来粘贴解析。',
+      );
+      return;
+    }
+    _applyDrafts(drafts, localNote: '本机直接读的，没联网');
+  }
+
+  Future<void> _parseImage(PickedTimetableFile file, String lower) async {
+    final blocked = _visionBlockedReason();
+    if (blocked != null) {
+      setState(() => _error = blocked);
+      return;
+    }
+    final drafts = await _service().parseTimetable(
+      '这是课表截图，请解析成课程列表。',
+      periodTable: _table,
+      imageBytes: file.bytes,
+      imageMime: _mimeOf(lower),
+    );
+    if (!mounted) return;
+    _applyDrafts(drafts);
+  }
+
+  Future<void> _parseTextFile(PickedTimetableFile file) async {
+    final text = textFromFile(file.bytes);
+    if (text.trim().isEmpty) {
+      setState(() => _error = '${file.name} 是空的，或者编码认不出来');
+      return;
+    }
+    // 顺手填进输入框：既让用户看得见读了什么，也能在解析偏了时直接手改再解析。
+    _input.text = text;
+    final drafts = await _service().parseTimetable(text, periodTable: _table);
+    if (!mounted) return;
+    _applyDrafts(drafts);
+  }
+
+  /// 官方域名下只有多模态模型能读图。别家供应商不好判断，放行让他试。
+  String? _visionBlockedReason() {
+    final settings = widget.settings;
+    if (!settings.baseUrl.contains('deepseek.com')) return null;
+    if (settings.model.toLowerCase().contains('flash')) return null;
+    return '当前模型 ${settings.model} 不能识图。去「我的」把模型换成 deepseek-flash，'
+        '或者改用「选文件」导 .xls、粘贴文字。';
+  }
+
+  static bool _isImage(String lower) => const [
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.webp',
+  ].any(lower.endsWith);
+
+  static String _mimeOf(String lower) {
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    return 'image/jpeg';
+  }
+
+  /// 解析结果统一落地：勾选状态、提示语、错误清理都在这儿，避免三条入口各写一遍。
+  void _applyDrafts(List<AiCourseDraft> drafts, {String? localNote}) {
+    final bad = drafts.where((draft) => !draft.resolved).length;
+    final head = localNote == null
+        ? '解析出 ${drafts.length} 门课'
+        : '从 $_sourceName 读出 ${drafts.length} 门课（$localNote）';
+    setState(() {
+      _rows = [
+        for (final draft in drafts)
+          _ImportRow(draft: draft, selected: draft.resolved),
+      ];
+      _error = null;
+      _message = bad == 0
+          ? '$head，核对后导入'
+          : '$head，其中 $bad 门的时间认不出来，需要手动补';
+    });
   }
 
   /// 给认不出节次的课手动补时间。
@@ -123,6 +328,8 @@ class _TimetableImportScreenState extends State<TimetableImportScreen> {
         endTime: result.end,
         location: row.draft.location,
         note: row.draft.note,
+        teacher: row.draft.teacher,
+        weeks: row.draft.weeks,
         weekParity: row.draft.weekParity,
         raw: row.draft.raw,
       );
@@ -151,7 +358,8 @@ class _TimetableImportScreenState extends State<TimetableImportScreen> {
     var inserted = 0;
     var skipped = 0;
     try {
-      // 同一门课同一时段已经存在就跳过：重复点两次导入不该把课表刷成两倍。
+      // 同一门课同一时段、同一批周次已经存在就跳过：重复点两次导入不该把课表刷成两倍。
+      // 周次要一起比，否则「线性代数 3-12 周」和「13-14 周」会被当成同一门吞掉一条。
       final existing = (await widget.db.queryAll()).courses;
       for (final row in picked) {
         final draft = row.draft;
@@ -159,7 +367,8 @@ class _TimetableImportScreenState extends State<TimetableImportScreen> {
           (course) =>
               course.title == draft.title &&
               course.dayOfWeek == draft.dayOfWeek &&
-              course.startTime == draft.startTime,
+              course.startTime == draft.startTime &&
+              (course.weeks ?? '') == (draft.weeks ?? ''),
         );
         if (duplicated) {
           skipped++;
@@ -173,6 +382,8 @@ class _TimetableImportScreenState extends State<TimetableImportScreen> {
             endTime: draft.endTime!,
             location: draft.location,
             note: draft.note,
+            teacher: draft.teacher,
+            weeks: draft.weeks,
             semesterStart: plan.start,
             semesterEnd: plan.end,
             weekParity: draft.weekParity,
@@ -210,16 +421,52 @@ class _TimetableImportScreenState extends State<TimetableImportScreen> {
                 TextField(
                   key: const Key('timetable_input'),
                   controller: _input,
-                  maxLines: 6,
-                  minLines: 4,
+                  maxLines: 5,
+                  minLines: 3,
                   decoration: const InputDecoration(
                     labelText: '把课表文字粘在这里',
-                    hintText: '从教务系统或课表截图里复制的文字，格式乱也没关系',
+                    hintText: '也可以直接点下面的「选文件 / 截图」',
                     border: OutlineInputBorder(),
                     alignLabelWithHint: true,
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        key: const Key('timetable_pick_file'),
+                        onPressed: _busy ? null : _pickAndParse,
+                        icon: const Icon(Icons.upload_file, size: 18),
+                        label: const Text(
+                          '选文件 / 截图',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      key: const Key('timetable_parse'),
+                      onPressed: _busy ? null : _parse,
+                      child: _busy
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('解析文字'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '支持 .xls（教务系统导出，本机解析）、CSV/TXT、以及课表截图',
+                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
@@ -257,18 +504,6 @@ class _TimetableImportScreenState extends State<TimetableImportScreen> {
                               },
                             ),
                     ),
-                    const SizedBox(width: 12),
-                    FilledButton(
-                      key: const Key('timetable_parse'),
-                      onPressed: _busy ? null : _parse,
-                      child: _busy
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('解析'),
-                    ),
                   ],
                 ),
                 if (_message != null) ...[
@@ -303,10 +538,14 @@ class _TimetableImportScreenState extends State<TimetableImportScreen> {
           Expanded(
             child: _rows.isEmpty
                 ? const Center(
-                    child: Text(
-                      '粘贴课表后点「解析」，\n解析结果会列在这里供你核对。',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 32),
+                      child: Text(
+                        '粘贴课表文字，或者丢一个课表文件 / 截图进来，\n'
+                        '解析结果会列在这里供你核对。',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey),
+                      ),
                     ),
                   )
                 : ListView.builder(
@@ -314,9 +553,6 @@ class _TimetableImportScreenState extends State<TimetableImportScreen> {
                     itemBuilder: (context, index) {
                       final row = _rows[index];
                       final draft = row.draft;
-                      final place = draft.location == null
-                          ? ''
-                          : ' · ${draft.location}';
                       return CheckboxListTile(
                         key: Key('import_row_$index'),
                         value: row.selected,
@@ -326,8 +562,7 @@ class _TimetableImportScreenState extends State<TimetableImportScreen> {
                         controlAffinity: ListTileControlAffinity.leading,
                         title: Text(draft.title),
                         subtitle: Text(
-                          '周${_weekName(draft.dayOfWeek)} '
-                          '${draft.timeLabel}$place',
+                          _subtitle(draft),
                           style: TextStyle(
                             fontSize: 12,
                             color: draft.resolved
@@ -358,7 +593,9 @@ class _TimetableImportScreenState extends State<TimetableImportScreen> {
                   child: Text(
                     _importing
                         ? '导入中…'
-                        : '导入勾选的 ${_rows.where((row) => row.selected && row.draft.resolved).length} 门课',
+                        : '导入勾选的 '
+                              '${_rows.where((row) => row.selected && row.draft.resolved).length} '
+                              '门课',
                   ),
                 ),
               ),
@@ -367,6 +604,17 @@ class _TimetableImportScreenState extends State<TimetableImportScreen> {
         ],
       ),
     );
+  }
+
+  /// 「周三 10:00–12:35 · E302 · 陈哲 · 3-18周」——教师和周次跟着时间走，一眼能核。
+  static String _subtitle(AiCourseDraft draft) {
+    final bits = <String>[
+      '周${_weekName(draft.dayOfWeek)} ${draft.timeLabel}',
+    ];
+    if (draft.location != null) bits.add(draft.location!);
+    if (draft.teacher != null) bits.add(draft.teacher!);
+    if (draft.weeks != null) bits.add('${draft.weeks}周');
+    return bits.join(' · ');
   }
 
   static String _weekName(int day) =>

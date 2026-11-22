@@ -28,11 +28,43 @@ class _TimetableScreenState extends State<TimetableScreen> {
 
   static const int segmentHours = 2;
 
-  DateTime _monday = DateTime.now().subtract(
-    Duration(days: DateTime.now().weekday - 1),
+  /// 以「本周」为原点的虚拟页码。左右各 260 周（约 5 年），够翻了。
+  /// 用「虚拟页 + 基准周一」而不是直接存日期，是为了让 PageView 能双向无限翻。
+  static const int originPage = 260;
+  static const int pageCount = 521;
+
+  final DateTime _baseMonday = () {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return today.subtract(Duration(days: now.weekday - 1));
+  }();
+
+  int _page = originPage;
+  late final PageController _pageController = PageController(
+    initialPage: originPage,
   );
+
   AppData _data = const AppData(courses: [], events: [], tasks: []);
   bool _loading = true;
+
+  DateTime _mondayOf(int page) =>
+      _baseMonday.add(Duration(days: (page - originPage) * 7));
+
+  /// 左右滑动由 PageView 负责；箭头留着当辅助（也告诉用户这个方向能翻）。
+  void _goToPage(int page) {
+    final target = page.clamp(0, pageCount - 1);
+    _pageController.animateToPage(
+      target,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+    );
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -61,8 +93,8 @@ class _TimetableScreenState extends State<TimetableScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final days = List.generate(7, (i) => _monday.add(Duration(days: i)));
-    final now = DateTime.now();
+    final monday = _mondayOf(_page);
+    final days = List.generate(7, (i) => monday.add(Duration(days: i)));
     return Column(
       children: [
         Row(
@@ -71,24 +103,42 @@ class _TimetableScreenState extends State<TimetableScreen> {
             IconButton(
               key: const Key('tt_prev_week'),
               icon: const Icon(Icons.chevron_left),
-              onPressed: () => setState(
-                () => _monday = _monday.subtract(const Duration(days: 7)),
-              ),
+              onPressed: () => _goToPage(_page - 1),
             ),
             Text(
-              '${_monday.month}月${_monday.day}日 - '
+              '${monday.month}月${monday.day}日 - '
               '${days.last.month}月${days.last.day}日',
               style: const TextStyle(color: Colors.grey),
             ),
             IconButton(
               key: const Key('tt_next_week'),
               icon: const Icon(Icons.chevron_right),
-              onPressed: () => setState(
-                () => _monday = _monday.add(const Duration(days: 7)),
-              ),
+              onPressed: () => _goToPage(_page + 1),
             ),
           ],
         ),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : PageView.builder(
+                  // 手势左右滑动翻周。网格本身是纵向滚动，两者方向不同不冲突。
+                  key: const Key('tt_week_pager'),
+                  controller: _pageController,
+                  itemCount: pageCount,
+                  onPageChanged: (index) => setState(() => _page = index),
+                  itemBuilder: (context, index) => _weekPage(_mondayOf(index)),
+                ),
+        ),
+      ],
+    );
+  }
+
+  /// 一页 = 一整周（星期表头 + 网格）。表头跟着页面一起滑，日期才对得上。
+  Widget _weekPage(DateTime monday) {
+    final days = List.generate(7, (i) => monday.add(Duration(days: i)));
+    final now = DateTime.now();
+    return Column(
+      children: [
         Row(
           children: [
             const SizedBox(width: 40),
@@ -120,60 +170,56 @@ class _TimetableScreenState extends State<TimetableScreen> {
         ),
         const Divider(height: 1),
         Expanded(
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : SingleChildScrollView(
-                  child: SizedBox(
+          child: SingleChildScrollView(
+            child: SizedBox(
+              height: _totalHeight,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 40,
                     height: _totalHeight,
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Stack(
                       children: [
-                        SizedBox(
-                          width: 40,
-                          height: _totalHeight,
-                          child: Stack(
-                            children: [
-                              for (
-                                var hour = gridStartMinutes ~/ 60;
-                                hour * 60 < gridEndMinutes;
-                                hour += segmentHours
-                              )
-                                Positioned(
-                                  top:
-                                      (hour * 60 - gridStartMinutes) /
-                                      60 *
-                                      pxPerHour,
-                                  left: 0,
-                                  right: 0,
-                                  child: Text(
-                                    '$hour',
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.grey,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                        for (final day in days)
-                          Expanded(
-                            child: LayoutBuilder(
-                              builder: (context, constraints) => _dayColumn(
-                                day,
-                                constraints.maxWidth,
-                                isToday:
-                                    day.year == now.year &&
-                                    day.month == now.month &&
-                                    day.day == now.day,
+                        for (
+                          var hour = gridStartMinutes ~/ 60;
+                          hour * 60 < gridEndMinutes;
+                          hour += segmentHours
+                        )
+                          Positioned(
+                            top:
+                                (hour * 60 - gridStartMinutes) / 60 * pxPerHour,
+                            left: 0,
+                            right: 0,
+                            child: Text(
+                              '$hour',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey,
                               ),
                             ),
                           ),
                       ],
                     ),
                   ),
-                ),
+                  for (final day in days)
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) => _dayColumn(
+                          day,
+                          constraints.maxWidth,
+                          isToday:
+                              day.year == now.year &&
+                              day.month == now.month &&
+                              day.day == now.day,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
         ),
       ],
     );

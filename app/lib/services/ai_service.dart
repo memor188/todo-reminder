@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
 import '../models/period_table.dart';
 import '../models/timeline.dart';
+import '../models/week_set.dart';
 
 enum DraftType { event, task, course }
 
@@ -20,6 +22,8 @@ class AiCourseDraft {
     this.endTime,
     this.location,
     this.note,
+    this.teacher,
+    this.weeks,
     this.weekParity = 0,
     this.unresolvedReason,
     this.raw,
@@ -40,7 +44,13 @@ class AiCourseDraft {
   final String? location;
   final String? note;
 
-  /// 0=每周，1=单周，2=双周。
+  /// 任课教师。真实课表里同一门课不同周次可能换老师，合并后只留第一位。
+  final String? teacher;
+
+  /// 上课周次写法，如 `3-18`、`4,6,8,10`、`3-12,15-18`。null/空 = 整学期。
+  final String? weeks;
+
+  /// 0=每周，1=单周，2=双周。只在 [weeks] 为空时作为兜底。
   final int weekParity;
 
   /// 非空表示这节没能换算成时间（如作息表里没有该节次），UI 要提示并禁选。
@@ -161,9 +171,9 @@ class AiService {
   /// 2. 「345」是逐字符拆的节次，不是数字 345 —— 汕大课表就这么写；
   /// 3. 一门课一周上多次要拆成多条，否则第二个上课时间会被丢掉。
   static const String timetableSystemPrompt = '''
-你是课表解析助手。用户会粘贴一张课表（可能是纯文本、带制表符的表格，或从教务系统
-复制出来的乱格式文字）。把它解析成课程列表，只输出一个 JSON 对象，不要解释、
-不要 markdown 代码块。
+你是课表解析助手。用户会给一张课表——可能是纯文本、带制表符的表格、从教务系统复制出来的
+乱格式文字，也可能直接是一张课表截图。把它解析成课程列表，只输出一个 JSON 对象，
+不要解释、不要 markdown 代码块。
 
 今天是 {TODAY}（星期{WEEKDAY}）。
 
@@ -176,6 +186,8 @@ class AiService {
 课表里像 "12" 表示第 1~2 节，"345" 表示第 3~5 节，"AB" 表示晚上 A~B 节。
 这是把节次逐字符写在一起，不是数字 345。遇到这种写法逐字符拆开，用 "-" 连起来
 填进 period（"345" → "3-5"，"12" → "1-2"）。
+教务系统导出的是 "01-02"、"03-04-05"、"11-12-13" 这种两位数字编号：直接按
+"第几个"换成上面的标签（第 10 节写作 0，第 11/12/13 节写作 A/B/C）。
 
 规则：
 1. 一门课一周上多次（如周一 1-2 节、周三 3-4 节），每次单独一条，不要合并。
@@ -183,14 +195,18 @@ class AiService {
 3. period 填节次范围，只能用上面作息表里出现过的标签，格式如 "1-2"、"3-5"、"A-C"。
    如果原文直接给了钟点（如 08:00-09:40），就把 time 和 end_time 填上、period 填 null。
 4. title 保留课程全称，去掉学分、教师、教室、节次等后缀。
-5. location 照抄原文（如 "E302"、"东区教学楼204"），没有则 null。
-6. note 放教师姓名、周次说明（如 "1-16周"），没有则 null。
-7. week_parity：原文明确写单周填 1、双周填 2，没写填 0。
-8. 表头行、"上午/下午/晚上"分组标签、星期列标题都不是课程，不要输出。
-9. 拿不准的字段填 null，不要猜。
+5. location 照抄原文（如 "E302"、"东海岸-E教527"），没有则 null。
+6. teacher 填任课教师姓名，没有则 null。
+7. weeks 填上课周次，**照原文的数字写法**：`3-18`、`4,6,8,10,12,14,16,18`、
+   `3-12,15-18`、`3,5-11`。不要写成「单周」「双周」这种文字。原文没写周次
+   （比如截图里没显示）就填 null。
+8. note 放其它补充信息，没有则 null。
+9. 表头行、"上午/下午/晚上"分组标签、星期列标题都不是课程，不要输出。
+10. 拿不准的字段填 null，不要猜。
 
 输出格式：
-{"courses":[{"title":"高等数学","day_of_week":1,"period":"1-2","time":null,"end_time":null,"location":"E302","note":"张三","week_parity":0}]}
+{"courses":[{"title":"高等数学","day_of_week":1,"period":"1-2","time":null,"end_time":null,
+"location":"E302","teacher":"张三","weeks":"3-18","note":null}]}
 ''';
 
   Uri get _endpoint {
@@ -228,6 +244,8 @@ class AiService {
   Future<List<AiCourseDraft>> parseTimetable(
     String userText, {
     required PeriodTable periodTable,
+    Uint8List? imageBytes,
+    String imageMime = 'image/jpeg',
   }) async {
     if (apiKey.trim().isEmpty) {
       throw const AiException('请先在「我的」页填写 API key');
@@ -247,7 +265,10 @@ class AiService {
         .replaceAll('{PERIOD_TABLE}', _periodTableText(periodTable))
         .replaceAll('{BIG_SECTION}', _bigSectionText());
 
-    return _coursesFromPayload(await _post(system, userText), periodTable);
+    return _coursesFromPayload(
+      await _post(system, userText, imageBytes: imageBytes, imageMime: imageMime),
+      periodTable,
+    );
   }
 
   /// 作息表转成提示词里的一行一节的清单。
@@ -259,7 +280,27 @@ class AiService {
       .join('，');
 
   /// OpenAI 兼容的 Chat Completions 调用，返回模型输出 JSON 解析后的对象。
-  Future<Object?> _post(String system, String userText) async {
+  ///
+  /// [imageBytes] 非空时按多模态发：`content` 变成 [文字, 图片] 数组，
+  /// 图片走 base64 内联（DeepSeek 支持 data URI）。只有支持识图的模型
+  /// （`deepseek-flash`）才能用这条路径。
+  Future<Object?> _post(
+    String system,
+    String userText, {
+    Uint8List? imageBytes,
+    String imageMime = 'image/jpeg',
+  }) async {
+    final Object userContent = imageBytes == null
+        ? userText
+        : [
+            {'type': 'text', 'text': userText},
+            {
+              'type': 'image_url',
+              'image_url': {
+                'url': 'data:$imageMime;base64,${base64Encode(imageBytes)}',
+              },
+            },
+          ];
     final response = await _client.post(
       _endpoint,
       headers: {
@@ -272,7 +313,7 @@ class AiService {
         'response_format': {'type': 'json_object'},
         'messages': [
           {'role': 'system', 'content': system},
-          {'role': 'user', 'content': userText},
+          {'role': 'user', 'content': userContent},
         ],
       }),
     );
@@ -433,6 +474,12 @@ class AiService {
 
     final location = (json['location'] as String?)?.trim();
     final note = (json['note'] as String?)?.trim();
+    final teacher = (json['teacher'] as String?)?.trim();
+    final weeksRaw = (json['weeks'] as String?)?.trim();
+    // 周次只在能解析成集合时才收；认不出就留空，回落到 weekParity。
+    final weeks = WeekSet.tryParse(weeksRaw) == null
+        ? null
+        : WeekSet.format(WeekSet.tryParse(weeksRaw)!.weeks);
 
     return AiCourseDraft(
       title: title,
@@ -442,6 +489,8 @@ class AiService {
       endTime: end,
       location: (location == null || location.isEmpty) ? null : location,
       note: (note == null || note.isEmpty) ? null : note,
+      teacher: (teacher == null || teacher.isEmpty) ? null : teacher,
+      weeks: weeks,
       weekParity: _parseWeekParity(json['week_parity']),
       unresolvedReason: reason,
       raw: json,

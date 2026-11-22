@@ -112,7 +112,12 @@ void main() {
       expect(expandCourse(course, monday).single.timeLabel, '08:00–09:40');
     });
 
-    test('单双周规则按学期周数过滤', () {
+    test('单双周按「学期起始那一周的周一」起算', () {
+      // 学期 2026-11-01（周日）开始 → 第 1 周 = 10-26（周一）~ 11-01（周日）。
+      // 于是 11-16 是第 4 周（偶）、11-23 是第 5 周（奇）。
+      // 这样算而不是从学期首日直接数天数，是为了让「第 N 周」跟课表上的
+      // 周次写法（如 3-18 周）落在同一个周块里——两套算法会在非周一起始的
+      // 学期里错开一周。
       final odd = Course(
         title: '高数',
         dayOfWeek: 1,
@@ -131,10 +136,10 @@ void main() {
         semesterEnd: '2027-01-31',
         weekParity: 2,
       );
-      // 11-23 是第 4 周（偶），11-16 是第 3 周（奇）
-      expect(expandCourse(odd, DateTime(2026, 11, 23)), isEmpty);
-      expect(expandCourse(even, DateTime(2026, 11, 23)).length, 1);
-      expect(expandCourse(odd, DateTime(2026, 11, 16)).length, 1);
+      expect(expandCourse(odd, DateTime(2026, 11, 23)).length, 1);
+      expect(expandCourse(even, DateTime(2026, 11, 23)), isEmpty);
+      expect(expandCourse(odd, DateTime(2026, 11, 16)), isEmpty);
+      expect(expandCourse(even, DateTime(2026, 11, 16)).length, 1);
     });
   });
 

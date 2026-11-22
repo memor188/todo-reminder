@@ -120,6 +120,49 @@ void main() {
     expect(find.text('周日'), findsWidgets);
   });
 
+  testWidgets('课表可以左右滑动翻周（不用点箭头）', (WidgetTester tester) async {
+    // 视口换成 360 宽：拖 200px 就过了半页，PageView 才会翻页。
+    // 默认 800 宽时同样拖 320px 只占 40%，会弹回原页。
+    useTallScreen(tester);
+    final now = DateTime.now();
+    final monday = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).subtract(Duration(days: now.weekday - 1));
+    final nextMonday = monday.add(const Duration(days: 7));
+    final nextSunday = nextMonday.add(const Duration(days: 6));
+    String range(DateTime from, DateTime to) =>
+        '${from.month}月${from.day}日 - ${to.month}月${to.day}日';
+
+    await tester.pumpWidget(buildApp(db: FakeDbService()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('课表'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(range(monday, monday.add(const Duration(days: 6)))),
+        findsOneWidget);
+
+    // 往左滑 = 下一周
+    await tester.drag(
+      find.byKey(const Key('tt_week_pager')),
+      const Offset(-200, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(range(nextMonday, nextSunday)), findsOneWidget);
+
+    // 往右滑 = 回到本周
+    await tester.drag(
+      find.byKey(const Key('tt_week_pager')),
+      const Offset(200, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(range(monday, monday.add(const Duration(days: 6)))),
+        findsOneWidget);
+  });
+
   testWidgets('课程录入可选择单双周并带回保存', (WidgetTester tester) async {
     useTallScreen(tester);
     final db = FakeDbService();
@@ -145,6 +188,63 @@ void main() {
 
     expect(db.savedCourses, hasLength(1));
     expect(db.savedCourses.single.weekParity, 1);
+  });
+
+  testWidgets('课程录入能填教师与周次，一起落库', (WidgetTester tester) async {
+    useTallScreen(tester);
+    final db = FakeDbService();
+    await tester.pumpWidget(buildApp(db: db));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('add_entry')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('课程'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('input_title')), '线性代数');
+    await tester.ensureVisible(find.byKey(const Key('input_teacher')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('input_teacher')), '陈哲');
+    await tester.ensureVisible(find.byKey(const Key('input_weeks')));
+    await tester.pumpAndSettle();
+    // 故意写乱一点：全角逗号 + 倒序范围，保存时应被归一化成 3-18
+    await tester.enterText(find.byKey(const Key('input_weeks')), '18-3');
+    await tester.ensureVisible(find.byKey(const Key('save_entry')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save_entry')));
+    await tester.pumpAndSettle();
+
+    expect(db.savedCourses, hasLength(1));
+    final course = db.savedCourses.single;
+    expect(course.teacher, '陈哲');
+    expect(course.weeks, '3-18');
+  });
+
+  testWidgets('周次写法认不出来时拦下，不写脏数据', (WidgetTester tester) async {
+    useTallScreen(tester);
+    final db = FakeDbService();
+    await tester.pumpWidget(buildApp(db: db));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('add_entry')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('课程'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('input_title')), '某课');
+    await tester.ensureVisible(find.byKey(const Key('input_weeks')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('input_weeks')), '单周');
+    await tester.ensureVisible(find.byKey(const Key('save_entry')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save_entry')));
+    await tester.pumpAndSettle();
+
+    expect(db.savedCourses, isEmpty);
+    expect(
+      tester.widget<Text>(find.byKey(const Key('input_message'))).data,
+      contains('周次认不出来'),
+    );
   });
 
   testWidgets('我的页显示 AI 配置与备份控件', (WidgetTester tester) async {
@@ -488,7 +588,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('课表导入'), findsOneWidget);
-    expect(find.textContaining('粘贴课表后点'), findsOneWidget);
+    expect(find.textContaining('丢一个课表文件'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('timetable_parse')));
     await tester.pumpAndSettle();

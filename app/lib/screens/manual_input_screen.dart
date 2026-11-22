@@ -5,6 +5,7 @@ import '../models/event_item.dart';
 import '../models/semester_plan.dart';
 import '../models/task.dart';
 import '../models/timeline.dart';
+import '../models/week_set.dart';
 import '../services/db_service.dart';
 import '../services/notification_service.dart';
 import '../services/reminder_service.dart';
@@ -45,6 +46,8 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
   final _endTime = TextEditingController(text: '10:30');
   final _location = TextEditingController();
   final _note = TextEditingController();
+  final _teacher = TextEditingController();
+  final _weeks = TextEditingController();
   final _semesterStart = TextEditingController();
   final _semesterEnd = TextEditingController();
   int _dayOfWeek = 1;
@@ -147,6 +150,8 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
           _weekParity = item.weekParity;
           _location.text = item.location ?? '';
           _note.text = item.note ?? '';
+          _teacher.text = item.teacher ?? '';
+          _weeks.text = item.weeks ?? '';
           // 学期起止正好等于某个方案时选中它，让用户看清这门课挂在哪学期。
           for (final plan in _plans) {
             if (plan.start == item.semesterStart &&
@@ -170,6 +175,8 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
     _endTime.dispose();
     _location.dispose();
     _note.dispose();
+    _teacher.dispose();
+    _weeks.dispose();
     _semesterStart.dispose();
     _semesterEnd.dispose();
     super.dispose();
@@ -219,6 +226,21 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
         ? null
         : _location.text.trim();
     final note = _note.text.trim().isEmpty ? null : _note.text.trim();
+    final teacher = _teacher.text.trim().isEmpty ? null : _teacher.text.trim();
+    // 周次允许空（回落到单双周）。写了就必须认得出来，否则整学期会少上课。
+    final weeksRaw = _weeks.text.trim();
+    String? weeks;
+    if (weeksRaw.isNotEmpty) {
+      final parsed = WeekSet.tryParse(weeksRaw);
+      if (parsed == null) {
+        setState(
+          () => _message = '周次认不出来。写成 3-18、4,6,8 或 3-12,15-18；'
+              '要按单双周就去下面选「单周/双周」',
+        );
+        return;
+      }
+      weeks = WeekSet.format(parsed.weeks);
+    }
 
     try {
       switch (_type) {
@@ -327,6 +349,8 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
             startTime: timeText,
             endTime: endTimeText,
             location: location,
+            teacher: teacher,
+            weeks: weeks,
             semesterStart: semesterStartText,
             semesterEnd: semesterEndText,
             weekParity: _weekParity,
@@ -585,6 +609,26 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
                         labelText: '结束时间',
                         hintText: '1040',
                         helperText: '只敲数字，冒号自动补',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: const Key('input_teacher'),
+                      controller: _teacher,
+                      decoration: const InputDecoration(
+                        labelText: '任课教师',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: const Key('input_weeks'),
+                      controller: _weeks,
+                      decoration: const InputDecoration(
+                        labelText: '上课周次',
+                        hintText: '3-18 / 4,6,8 / 3-12,15-18',
+                        helperText: '留空则按下面的单双周走',
                         border: OutlineInputBorder(),
                       ),
                     ),
