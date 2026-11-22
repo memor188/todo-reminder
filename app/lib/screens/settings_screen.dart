@@ -217,7 +217,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         OutlinedButton(
           key: const Key('settings_timetable_import'),
           onPressed: _openTimetableImport,
-          child: const Text('课表导入（粘贴课表文字，AI 解析成课程）'),
+          child: const Text('课表导入（丢 .xls 文件 / 截图 / 粘贴文字）'),
         ),
         const SizedBox(height: 12),
         const Text(

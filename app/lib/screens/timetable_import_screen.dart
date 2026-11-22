@@ -63,23 +63,6 @@ class _ImportRow {
 }
 
 class _TimetableImportScreenState extends State<TimetableImportScreen> {
-  /// 选文件时放开这些后缀。`.xlsx` 故意留着——好给一句「另存为 .xls」的提示，
-  /// 让选择器直接把它藏了，用户只会以为 App 坏了。
-  static const List<String> pickableExtensions = [
-    'xls',
-    'xlsx',
-    'csv',
-    'tsv',
-    'txt',
-    'md',
-    'html',
-    'htm',
-    'png',
-    'jpg',
-    'jpeg',
-    'webp',
-  ];
-
   final _input = TextEditingController();
   List<_ImportRow> _rows = const [];
   List<SemesterPlan> _plans = const [];
@@ -171,11 +154,14 @@ class _TimetableImportScreenState extends State<TimetableImportScreen> {
   /// file_picker 13 起 `pickFile` 直接返回 `PlatformFile`，字节用
   /// `readAsBytes()` 现读——老版本那个「withData + bytes 字段」已经没有了。
   /// 课表文件才几十 KB，整份读进内存没压力。
+  ///
+  /// **故意不按后缀过滤**（`FileType.custom` + `allowedExtensions`）：
+  /// 该参数在安卓上是先经 `MimeTypeMap.getMimeTypeFromExtension` 翻成 MIME 再塞给
+  /// 系统的，而不少机型的 MimeTypeMap 里根本没有 `xls`（真机一加实测：
+  /// Download 里的 .xls 在选择器里完全不显示，用户只会以为 App 坏了）。
+  /// 干脆放开让用户选任何文件，落到本页后再按后缀分流，认不出给明确提示。
   static Future<PickedTimetableFile?> _pickWithFilePicker() async {
-    final file = await FilePicker.pickFile(
-      type: FileType.custom,
-      allowedExtensions: pickableExtensions,
-    );
+    final file = await FilePicker.pickFile();
     if (file == null) return null;
     final bytes = await file.readAsBytes();
     if (bytes.isEmpty) return null;
