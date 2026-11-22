@@ -18,6 +18,7 @@ class TimelineEntry {
     this.note,
     this.colorHex,
     this.done = false,
+    this.priority = priorityNormal,
   });
 
   final String key;
@@ -33,6 +34,11 @@ class TimelineEntry {
   final String? note;
   final String? colorHex;
   final bool done;
+
+  /// 普通 / 重要 / 紧急，见 [priorityLabel]。课程恒为普通。
+  final int priority;
+
+  bool get isImportant => priority >= priorityImportant;
 }
 
 DateTime parseDate(String value) => DateTime.parse(value);
@@ -104,6 +110,26 @@ DateTime? resolveTaskReminderAt(DateTime date, String? dueTime) {
 String hm(int minutes) =>
     '${(minutes ~/ 60).toString().padLeft(2, '0')}:'
     '${(minutes % 60).toString().padLeft(2, '0')}';
+
+/// 优先级（V3）：普通 / 重要 / 紧急。
+///
+/// 只做视觉标记，不参与排序——日程本来就是按时间看的，把紧急的条目提到
+/// 早上八点的课前面会让时间线错乱，比不排序更糟。
+const int priorityNormal = 0;
+const int priorityImportant = 1;
+const int priorityUrgent = 2;
+
+const List<int> priorityOptions = [
+  priorityNormal,
+  priorityImportant,
+  priorityUrgent,
+];
+
+String priorityLabel(int priority) => switch (priority) {
+  priorityImportant => '重要',
+  priorityUrgent => '紧急',
+  _ => '普通',
+};
 
 /// 提前量默认值（V3 定稿）：事件要提前到场，任务到点做完即可。
 const int defaultEventLeadMinutes = 15;
@@ -247,6 +273,7 @@ List<TimelineEntry> buildTimeline({
             '${start.minute.toString().padLeft(2, '0')}',
         location: event.location,
         note: event.note,
+        priority: event.priority,
       ),
     );
   }
@@ -264,6 +291,7 @@ List<TimelineEntry> buildTimeline({
         timeLabel: task.dueTime ?? '全天',
         location: task.location,
         note: task.note,
+        priority: task.priority,
       ),
     );
   }

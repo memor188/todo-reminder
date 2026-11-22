@@ -28,7 +28,7 @@ class DbService {
     final dir = await getDatabasesPath();
     final db = await openDatabase(
       p.join(dir, 'todo_app.db'),
-      version: 3,
+      version: 4,
       onCreate: _createTables,
       onUpgrade: _upgradeTables,
     );
@@ -62,7 +62,8 @@ class DbService {
         location TEXT,
         note TEXT,
         done INTEGER NOT NULL DEFAULT 0,
-        remind_before_minutes INTEGER NOT NULL DEFAULT 0
+        remind_before_minutes INTEGER NOT NULL DEFAULT 0,
+        priority INTEGER NOT NULL DEFAULT 0
       )
     ''');
     await db.execute('''
@@ -74,13 +75,15 @@ class DbService {
         location TEXT,
         note TEXT,
         done INTEGER NOT NULL DEFAULT 0,
-        remind_before_minutes INTEGER NOT NULL DEFAULT 0
+        remind_before_minutes INTEGER NOT NULL DEFAULT 0,
+        priority INTEGER NOT NULL DEFAULT 0
       )
     ''');
   }
 
   /// v1 → v2：课程补 note 字段（课程也要能写「带教材」这类备注）。
   /// v2 → v3：事件和任务补 remind_before_minutes（提前量，V3）。
+  /// v3 → v4：事件和任务补 priority（优先级标签，V3）。
   ///
   /// 每步都用 PRAGMA 先查列，避免「列已存在」时 ALTER 报错。
   Future<void> _upgradeTables(
@@ -102,6 +105,20 @@ class DbService {
         db,
         'tasks',
         'remind_before_minutes',
+        'INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (oldVersion < 4) {
+      await _addColumnIfMissing(
+        db,
+        'events',
+        'priority',
+        'INTEGER NOT NULL DEFAULT 0',
+      );
+      await _addColumnIfMissing(
+        db,
+        'tasks',
+        'priority',
         'INTEGER NOT NULL DEFAULT 0',
       );
     }

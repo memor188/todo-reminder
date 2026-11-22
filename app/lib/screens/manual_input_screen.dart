@@ -54,6 +54,9 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
   /// 提前多少分钟提醒（V3）。事件默认提前 15 分钟，任务默认到点。
   int _leadMinutes = defaultEventLeadMinutes;
 
+  /// 优先级（V3）：普通 / 重要 / 紧急，只做视觉标记。
+  int _priority = priorityNormal;
+
   /// 学期方案：新建课程时一键套用起止日期，省得每门课重打一遍。
   List<SemesterPlan> _plans = const [];
   String? _selectedPlanId;
@@ -115,6 +118,7 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
           _location.text = item.location ?? '';
           _note.text = item.note ?? '';
           _leadMinutes = item.remindBeforeMinutes;
+          _priority = item.priority;
         }
         break;
       case EntryType.task:
@@ -127,6 +131,7 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
           _location.text = item.location ?? '';
           _note.text = item.note ?? '';
           _leadMinutes = item.remindBeforeMinutes;
+          _priority = item.priority;
         }
         break;
       case EntryType.course:
@@ -237,6 +242,7 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
             location: location,
             note: note,
             remindBeforeMinutes: _leadMinutes,
+            priority: _priority,
           );
           final int id;
           if (_editingId != null) {
@@ -276,6 +282,7 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
             location: location,
             note: note,
             remindBeforeMinutes: _leadMinutes,
+            priority: _priority,
           );
           final int id;
           if (_editingId != null) {
@@ -543,6 +550,28 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
                       ],
                       onChanged: (value) =>
                           setState(() => _leadMinutes = value ?? 0),
+                    ),
+                    const SizedBox(height: 12),
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '优先级',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    SegmentedButton<int>(
+                      key: const Key('input_priority'),
+                      segments: [
+                        for (final priority in priorityOptions)
+                          ButtonSegment(
+                            value: priority,
+                            label: Text(priorityLabel(priority)),
+                          ),
+                      ],
+                      selected: {_priority},
+                      onSelectionChanged: (value) =>
+                          setState(() => _priority = value.first),
                     ),
                   ],
                   if (_type == InputType.course) ...[

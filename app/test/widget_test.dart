@@ -68,6 +68,21 @@ void main() {
     );
   }
 
+  /// 把测试视口换成接近真机的竖屏尺寸。
+  ///
+  /// Flutter 测试默认视口只有 800×600 逻辑像素，而手机竖屏是 360×800 上下。
+  /// 录入页 V3 加了提前量和优先级两组控件后，保存按钮在 600 高的视口里会掉到
+  /// 折叠线以下——`ensureVisible` 也拉不上来（内容总高只比视口高一点，滚动余量
+  /// 不够），点击就落空了。给个真机高度，测试关注的才是逻辑而不是视口太矮。
+  void useTallScreen(WidgetTester tester) {
+    tester.view.physicalSize = const Size(1080, 3840);
+    tester.view.devicePixelRatio = 3.0; // → 360 × 1280 逻辑像素
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+  }
+
   testWidgets('V1 首页有三 tab、添加按钮和空日程提示', (WidgetTester tester) async {
     await tester.pumpWidget(buildApp(db: FakeDbService()));
     await tester.pumpAndSettle();
@@ -106,6 +121,7 @@ void main() {
   });
 
   testWidgets('课程录入可选择单双周并带回保存', (WidgetTester tester) async {
+    useTallScreen(tester);
     final db = FakeDbService();
     await tester.pumpWidget(buildApp(db: db));
     await tester.pumpAndSettle();
@@ -164,6 +180,7 @@ void main() {
   });
 
   testWidgets('点添加按钮进入录入页，空标题点保存给出提示', (WidgetTester tester) async {
+    useTallScreen(tester);
     await tester.pumpWidget(buildApp(db: FakeDbService()));
     await tester.pumpAndSettle();
 
@@ -234,6 +251,7 @@ void main() {
   });
 
   testWidgets('点日程条目进入编辑页，标题预填且可保存修改', (WidgetTester tester) async {
+    useTallScreen(tester);
     final today = dateKey(DateTime.now());
     final db = FakeDbService();
     db.storedEvent = EventItem(
@@ -261,6 +279,37 @@ void main() {
 
     expect(db.updatedEvent?.title, '补考');
     expect(db.updatedEvent?.id, 5);
+  });
+
+  testWidgets('编辑条目可改优先级，保存后带回', (WidgetTester tester) async {
+    useTallScreen(tester);
+    final today = dateKey(DateTime.now());
+    final db = FakeDbService();
+    db.storedEvent = EventItem(
+      id: 9,
+      title: '考试',
+      startAt: '${today}T23:50:00',
+    );
+    db.data = AppData(courses: [], events: [db.storedEvent!], tasks: []);
+
+    await tester.pumpWidget(buildApp(db: db));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('考试'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('input_priority')), findsOneWidget);
+    await tester.ensureVisible(find.text('紧急'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('紧急'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('save_entry')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save_entry')));
+    await tester.pumpAndSettle();
+
+    expect(db.updatedEvent?.priority, priorityUrgent);
   });
 
   testWidgets('编辑页删除需二次确认', (WidgetTester tester) async {
