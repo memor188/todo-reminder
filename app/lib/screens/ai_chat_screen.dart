@@ -120,13 +120,18 @@ class _AiChatScreenState extends State<AiChatScreen> {
     }
   }
 
-  Future<void> _scheduleIfNeeded(int id, DateTime at, String title) async {
+  Future<void> _scheduleIfNeeded(
+    int id,
+    DateTime at,
+    String title, {
+    int leadMinutes = 0,
+  }) async {
     if (!at.isAfter(DateTime.now())) return;
     try {
       await widget.notifications.schedule(
         id: id,
         title: title,
-        body: '到点了：$title',
+        body: reminderBody(title, leadMinutes),
         eventTime: at,
       );
     } catch (_) {
@@ -169,9 +174,21 @@ class _AiChatScreenState extends State<AiChatScreen> {
               note: card.note.text.trim().isEmpty
                   ? null
                   : card.note.text.trim(),
+              // AI 不猜提前量，统一用事件默认值；用户要改可以点进条目编辑。
+              remindBeforeMinutes: defaultEventLeadMinutes,
             ),
           );
-          await _scheduleIfNeeded(100000 + id, at, title);
+          await _scheduleIfNeeded(
+            100000 + id,
+            resolveRemindAt(
+                  eventTime: at,
+                  leadMinutes: defaultEventLeadMinutes,
+                  now: DateTime.now(),
+                ) ??
+                at,
+            title,
+            leadMinutes: defaultEventLeadMinutes,
+          );
           break;
         case DraftType.task:
           if (date == null) {
@@ -189,11 +206,23 @@ class _AiChatScreenState extends State<AiChatScreen> {
               note: card.note.text.trim().isEmpty
                   ? null
                   : card.note.text.trim(),
+              remindBeforeMinutes: defaultTaskLeadMinutes,
             ),
           );
-          // 无钟点任务也提醒：当天 09:00（2026-11-21 定稿）。
-          final at = resolveTaskReminderAt(date, timeText);
-          if (at != null) await _scheduleIfNeeded(200000 + id, at, title);
+          // 无钟点任务也提醒：当天 09:00（2026-11-21 定稿），再按提前量前移。
+          final dueAt = resolveTaskReminderAt(date, timeText);
+          if (dueAt != null) {
+            await _scheduleIfNeeded(
+              200000 + id,
+              resolveRemindAt(
+                    eventTime: dueAt,
+                    leadMinutes: defaultTaskLeadMinutes,
+                    now: DateTime.now(),
+                  ) ??
+                  dueAt,
+              title,
+            );
+          }
           break;
         case DraftType.course:
           final today = DateTime.now();

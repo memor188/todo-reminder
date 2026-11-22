@@ -28,7 +28,7 @@ class DbService {
     final dir = await getDatabasesPath();
     final db = await openDatabase(
       p.join(dir, 'todo_app.db'),
-      version: 2,
+      version: 3,
       onCreate: _createTables,
       onUpgrade: _upgradeTables,
     );
@@ -61,7 +61,8 @@ class DbService {
         start_at TEXT NOT NULL,
         location TEXT,
         note TEXT,
-        done INTEGER NOT NULL DEFAULT 0
+        done INTEGER NOT NULL DEFAULT 0,
+        remind_before_minutes INTEGER NOT NULL DEFAULT 0
       )
     ''');
     await db.execute('''
@@ -72,24 +73,50 @@ class DbService {
         due_time TEXT,
         location TEXT,
         note TEXT,
-        done INTEGER NOT NULL DEFAULT 0
+        done INTEGER NOT NULL DEFAULT 0,
+        remind_before_minutes INTEGER NOT NULL DEFAULT 0
       )
     ''');
   }
 
   /// v1 → v2：课程补 note 字段（课程也要能写「带教材」这类备注）。
+  /// v2 → v3：事件和任务补 remind_before_minutes（提前量，V3）。
+  ///
+  /// 每步都用 PRAGMA 先查列，避免「列已存在」时 ALTER 报错。
   Future<void> _upgradeTables(
     Database db,
     int oldVersion,
     int newVersion,
   ) async {
     if (oldVersion < 2) {
-      final columns = await db.rawQuery('PRAGMA table_info(courses)');
-      final names = columns.map((row) => row['name']).toSet();
-      if (!names.contains('note')) {
-        await db.execute('ALTER TABLE courses ADD COLUMN note TEXT');
-      }
+      await _addColumnIfMissing(db, 'courses', 'note', 'TEXT');
     }
+    if (oldVersion < 3) {
+      await _addColumnIfMissing(
+        db,
+        'events',
+        'remind_before_minutes',
+        'INTEGER NOT NULL DEFAULT 0',
+      );
+      await _addColumnIfMissing(
+        db,
+        'tasks',
+        'remind_before_minutes',
+        'INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+  }
+
+  Future<void> _addColumnIfMissing(
+    Database db,
+    String table,
+    String column,
+    String definition,
+  ) async {
+    final columns = await db.rawQuery('PRAGMA table_info($table)');
+    final names = columns.map((row) => row['name']).toSet();
+    if (names.contains(column)) return;
+    await db.execute('ALTER TABLE $table ADD COLUMN $column $definition');
   }
 
   Future<int> insertCourse(Course item) async =>

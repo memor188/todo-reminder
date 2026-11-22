@@ -172,7 +172,11 @@ void main() {
 
     expect(find.text('新建条目'), findsOneWidget);
     expect(find.byKey(const Key('input_title')), findsOneWidget);
-    await tester.tap(find.byKey(const Key('save_entry')));
+    // V3 加了「提前提醒」下拉框，表单变高，保存按钮落到折叠线以下。
+    final saveButton = find.byKey(const Key('save_entry'));
+    await tester.ensureVisible(saveButton);
+    await tester.pumpAndSettle();
+    await tester.tap(saveButton);
     await tester.pumpAndSettle();
     expect(find.text('请先填事项'), findsOneWidget);
   });

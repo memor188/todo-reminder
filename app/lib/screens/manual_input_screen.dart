@@ -50,6 +50,9 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
   int _weekParity = 0;
   String? _message;
 
+  /// 提前多少分钟提醒（V3）。事件默认提前 15 分钟，任务默认到点。
+  int _leadMinutes = defaultEventLeadMinutes;
+
   /// 学期方案：新建课程时一键套用起止日期，省得每门课重打一遍。
   List<SemesterPlan> _plans = const [];
   String? _selectedPlanId;
@@ -110,6 +113,7 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
           _time.text = hm(start.hour * 60 + start.minute);
           _location.text = item.location ?? '';
           _note.text = item.note ?? '';
+          _leadMinutes = item.remindBeforeMinutes;
         }
         break;
       case EntryType.task:
@@ -121,6 +125,7 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
           _time.text = item.dueTime ?? '';
           _location.text = item.location ?? '';
           _note.text = item.note ?? '';
+          _leadMinutes = item.remindBeforeMinutes;
         }
         break;
       case EntryType.course:
@@ -228,6 +233,7 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
             startAt: startAt.toIso8601String(),
             location: location,
             note: note,
+            remindBeforeMinutes: _leadMinutes,
           );
           final int id;
           if (_editingId != null) {
@@ -236,9 +242,17 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
           } else {
             id = await widget.db.insertEvent(item);
           }
+          // 事件已过时 resolveRemindAt 返回 null，用 startAt 兜底：它也在过去，
+          // _reschedule 会先取消旧提醒再跳过重排。
           await _reschedule(
             id: _eventScheduleId(id),
-            at: startAt,
+            at:
+                resolveRemindAt(
+                  eventTime: startAt,
+                  leadMinutes: _leadMinutes,
+                  now: DateTime.now(),
+                ) ??
+                startAt,
             title: title,
             wasEditing: _isEditing,
           );
@@ -257,6 +271,7 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
             dueTime: minutes == null ? null : timeText,
             location: location,
             note: note,
+            remindBeforeMinutes: _leadMinutes,
           );
           final int id;
           if (_editingId != null) {
@@ -265,8 +280,15 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
           } else {
             id = await widget.db.insertTask(item);
           }
-          // 无钟点任务也在当天 09:00 提醒（不是不提醒）。
-          final at = resolveTaskReminderAt(date!, timeText);
+          // 无钟点任务也在当天 09:00 提醒（不是不提醒），再按提前量前移。
+          final dueAt = resolveTaskReminderAt(date!, timeText);
+          final at = dueAt == null
+              ? null
+              : resolveRemindAt(
+                  eventTime: dueAt,
+                  leadMinutes: _leadMinutes,
+                  now: DateTime.now(),
+                );
           if (at != null) {
             await _reschedule(
               id: _taskScheduleId(id),
@@ -274,6 +296,9 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
               title: title,
               wasEditing: _isEditing,
             );
+          } else if (_isEditing) {
+            // 改了时间又变成排不上，旧提醒必须撤掉，否则会按旧时间响。
+            await widget.notifications.cancel(_taskScheduleId(id));
           }
           break;
         case InputType.course:
@@ -324,7 +349,7 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
       await widget.notifications.schedule(
         id: id,
         title: title,
-        body: '到点了：$title',
+        body: reminderBody(title, _leadMinutes),
         eventTime: at,
       );
     } catch (e) {
@@ -407,7 +432,14 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
                     onSelectionChanged: _isEditing
                         ? null
                         : (value) {
-                            setState(() => _type = value.first);
+                            setState(() {
+                              _type = value.first;
+                              // 切类型时回到该类型的默认提前量，避免把事件的
+                              // 15 分钟带到任务上（任务到点即可）。
+                              _leadMinutes = value.first == InputType.task
+                                  ? defaultTaskLeadMinutes
+                                  : defaultEventLeadMinutes;
+                            });
                             if (value.first == InputType.course) {
                               _autoSelectPlan();
                             }
@@ -463,6 +495,28 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
                       border: const OutlineInputBorder(),
                     ),
                   ),
+                  if (_type != InputType.course) ...[
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<int>(
+                      // initialValue 只在构建时生效，靠 key 随值重建同步显示。
+                      key: ValueKey('input_lead_$_leadMinutes'),
+                      initialValue: _leadMinutes,
+                      decoration: const InputDecoration(
+                        labelText: '提前提醒',
+                        helperText: '事件默认提前 15 分钟，任务默认到点',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        for (final minutes in leadMinuteOptions)
+                          DropdownMenuItem(
+                            value: minutes,
+                            child: Text(leadLabel(minutes)),
+                          ),
+                      ],
+                      onChanged: (value) =>
+                          setState(() => _leadMinutes = value ?? 0),
+                    ),
+                  ],
                   if (_type == InputType.course) ...[
                     const SizedBox(height: 12),
                     TextField(

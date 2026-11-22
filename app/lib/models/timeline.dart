@@ -105,6 +105,50 @@ String hm(int minutes) =>
     '${(minutes ~/ 60).toString().padLeft(2, '0')}:'
     '${(minutes % 60).toString().padLeft(2, '0')}';
 
+/// 提前量默认值（V3 定稿）：事件要提前到场，任务到点做完即可。
+const int defaultEventLeadMinutes = 15;
+const int defaultTaskLeadMinutes = 0;
+
+/// 可选的提前量档位，UI 下拉框和 AI 侧共用同一份。
+const List<int> leadMinuteOptions = [0, 5, 10, 15, 30, 60];
+
+/// 提前量的中文标签。0 显示「到点」，其余显示「提前 N 分钟」。
+String leadLabel(int minutes) {
+  if (minutes <= 0) return '到点提醒';
+  if (minutes % 60 == 0) return '提前 ${minutes ~/ 60} 小时';
+  return '提前 $minutes 分钟';
+}
+
+/// 通知正文。有提前量时说「还有 N 分钟」，否则说「到点了」——
+/// 设了提前 30 分钟却弹「到点了」，用户会以为时间到了。
+String reminderBody(String title, int leadMinutes) {
+  if (leadMinutes <= 0) return '到点了：$title';
+  if (leadMinutes % 60 == 0) return '还有 ${leadMinutes ~/ 60} 小时：$title';
+  return '还有 $leadMinutes 分钟：$title';
+}
+
+/// 算最终该在什么时刻弹提醒。
+///
+/// 三个分支：
+/// - 事件本身已经过去 → null，不提醒；
+/// - 事件时刻减去提前量仍在未来 → 按提前量提醒；
+/// - 减完已经过去、但事件还没到 → 退化为「立刻提醒」。
+///
+/// 第三条是刻意留的兜底：用户 14:30 建了一条「今天 15:00 考试，提前 60 分钟」，
+/// 提前量已经无从谈起，但这时恰恰是最该立刻提醒的时刻，静默丢掉不合理。
+DateTime? resolveRemindAt({
+  required DateTime eventTime,
+  required int leadMinutes,
+  required DateTime now,
+}) {
+  if (!eventTime.isAfter(now)) return null;
+  final lead = eventTime.subtract(
+    Duration(minutes: leadMinutes <= 0 ? 0 : leadMinutes),
+  );
+  // +5 秒是为了让下游的 schedule() 一定落在未来（它对过去的时刻会抛错）。
+  return lead.isAfter(now) ? lead : now.add(const Duration(seconds: 5));
+}
+
 bool _matchesParity(Course course, DateTime day) {
   if (course.weekParity == 0) return true;
   final weekIndex =
