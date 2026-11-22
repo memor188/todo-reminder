@@ -61,11 +61,21 @@ Flutter 写的，数据全部存在本机，不联网、不上传。
 cd app
 flutter pub get
 cd android
+# debug（日常开发用，~188MB，带 JIT 快照和热重载）
 ./gradlew assembleDebug --console=plain --offline
 # 产物：app/build/app/outputs/flutter-apk/app-debug.apk
+
+# release（给朋友装 / 备份用，~19MB，AOT 编译）
+./gradlew assembleRelease --console=plain -Ptarget-platform=android-arm64
+# 产物：app/build/app/outputs/flutter-apk/app-release.apk
 ```
 
-离线构建依赖本机 maven 仓库里的 Flutter engine jar。首次在新机器上构建时去掉 `--offline`，让它自己去下载。
+离线构建依赖本机 maven 仓库（`E:\AndroidDev\local-maven`）里的 Flutter engine jar。
+
+两个坑：
+
+1. `exclusiveContent` 那段必须放在**根工程** `android/build.gradle.kts` 的 `allprojects` 里。只写在 `app/build.gradle.kts` 里，插件子工程（`android_file_picker`、`sqflite_android` 等）解析 `io.flutter:flutter_embedding_release` 时仍会跑去 `storage.googleapis.com`，在慢速网络下表现为卡住。
+2. `assembleRelease` **不要加 `--offline`**。release 版的 engine 包是新加进本地仓库的，Gradle 的模块索引还没登记，离线模式下会直接报 `No cached version available for offline mode`。不带 `--offline` 时 `io.flutter` 被锁定在 `file://` 本地仓库，解析全在磁盘上完成，不会联网。
 
 ## 测试
 

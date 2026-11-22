@@ -13,7 +13,9 @@
 
 ## 安装包
 
-`todo-v2-done-debug.apk`（约 188 MB，debug 版，含全部 ABI）
+### debug 版（日常调试用）
+
+`todo-v2-done-debug.apk`（约 188 MB，含全部 ABI，带 JIT 快照）
 
 ```
 MD5  57d370ed206e7d10b51e4df7b1a91654
@@ -21,6 +23,26 @@ MD5  57d370ed206e7d10b51e4df7b1a91654
 
 重装：`adb install -r -g todo-v2-done-debug.apk`
 （手机锁屏时 vivo 会拦安装确认框，报 `User rejected permissions`，先解锁。）
+
+### release 版（分发/长期用）
+
+`todo-v2-done-release.apk`（18.9 MB，仅 arm64-v8a，AOT 编译，自建 key 签名 `CN=AnLu Todo`）
+
+```
+MD5  5091a0c4979ffcdf7cd3ceeecbe490be
+大小 19,826,687 字节
+```
+
+⚠️ **和 debug 版签名不同，不能覆盖安装。** 直接 `adb install -r` 会报
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE`。换装流程：
+
+1. 先在现有 App 里「我的 → 导出备份」（不含 API key 的 JSON）
+2. `adb uninstall com.anlu.todo_app`
+3. `adb install -r todo-v2-done-release.apk`
+4. 重新填 AI 配置 + 导入备份
+5. **复验通知权限**（release 是全新安装，通知权限和电池优化白名单要重新给）
+
+> 这套流程留到 V3 收尾时再走，现在只证明 release 链路是通的、包是能出来的。
 
 ## 这一版包含什么
 
@@ -33,12 +55,22 @@ MD5  57d370ed206e7d10b51e4df7b1a91654
 
 ```bash
 cd E:/todo-app/app/android
+
+# debug
 ./gradlew assembleDebug --console=plain --offline
 # 产物：app/build/app/outputs/flutter-apk/app-debug.apk
+
+# release
+./gradlew assembleRelease --console=plain -Ptarget-platform=android-arm64
+# 产物：app/build/app/outputs/flutter-apk/app-release.apk
 ```
 
-离线构建依赖 `E:/AndroidDev/local-maven`（`io.flutter` 的 engine jar 本地仓库）。
-不要删 `app/build.gradle.kts` 里的 `exclusiveContent` 那段，删了会去 40KB/s 的官方源重下 427MB。
+两个注意：
+
+- 离线构建依赖 `E:/AndroidDev/local-maven`（`io.flutter` 的 engine jar 本地仓库）。`exclusiveContent` 那段现在在**根工程** `android/build.gradle.kts` 的 `allprojects` 里，别只往 `app/build.gradle.kts` 挪——插件子工程也要用。
+- `assembleRelease` **不要加 `--offline`**（本地仓库里 release 的包没登记进 Gradle 索引，离线模式会报 `No cached version`），也**必须带** `-Ptarget-platform=android-arm64`（本地仓库只有 arm64 的 release engine）。
+
+细节见 `docs/开发计划.md` 的 §2.8.1。
 
 ## 回滚
 
