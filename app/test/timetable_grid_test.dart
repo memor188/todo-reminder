@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:todo_app/main.dart';
 import 'package:todo_app/models/course.dart';
 import 'package:todo_app/models/timeline.dart';
+import 'package:todo_app/screens/timetable_screen.dart';
 import 'package:todo_app/services/db_service.dart';
 import 'package:todo_app/services/notification_service.dart';
 import 'package:todo_app/services/settings_service.dart';
@@ -165,7 +166,8 @@ void main() {
     await tester.tap(find.text('课表'));
     await tester.pumpAndSettle();
 
-    expect(find.text('@东海岸-E教201-阶梯'), findsOneWidget);
+    // 展示时剥掉重复校区前缀，库里仍是完整地址（见 timetable_file_parser_test）
+    expect(find.text('@E教201-阶梯'), findsOneWidget);
   });
 
   testWidgets('翻到别的周会出现「回到本周」，点一下回本周', (tester) async {
@@ -318,6 +320,28 @@ void main() {
         ),
         contains(card.color),
       );
+    });
+  });
+
+  group('展示层辅助函数', () {
+    test('教室显示名剥掉校区前缀，空值安全', () {
+      expect(displayLocation('东海岸-E教201-阶梯'), 'E教201-阶梯');
+      expect(displayLocation('金平-科技楼101'), '科技楼101');
+      expect(displayLocation('操场'), '操场');
+      expect(displayLocation(null), '');
+      // 整串就是校区名时不剥，免得显示成空
+      expect(displayLocation('东海岸'), '东海岸');
+    });
+
+    test('当前时间线只在本周、且在作息表范围内出现', () {
+      final monday = DateTime(2026, 11, 16);
+      double? lineAt(DateTime at) => nowLineTopFor(at, monday, 480, 1315, 1.25);
+
+      expect(lineAt(DateTime(2026, 11, 18, 10, 30)), (630 - 480) * 1.25);
+      expect(lineAt(DateTime(2026, 11, 23, 10, 30)), isNull); // 下周一
+      expect(lineAt(DateTime(2026, 11, 15, 10, 30)), isNull); // 上周日
+      expect(lineAt(DateTime(2026, 11, 18, 7, 0)), isNull); // 早于 08:00
+      expect(lineAt(DateTime(2026, 11, 18, 23, 0)), isNull); // 晚于 21:55
     });
   });
 }

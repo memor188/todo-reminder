@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/period_table.dart';
@@ -17,6 +19,29 @@ import '../widgets/timeline_item.dart';
 ///
 /// 位置仍按真实分钟数换算（[layoutDay]），所以 08:00–09:40 的课自然压在
 /// 第 1、2 节两行上，事件、任务这类不对齐节次的条目也能落在正确高度。
+/// 当前时间线在这一周的落点（相对网格顶部的像素）。
+///
+/// 不在本周、或当前时刻落在作息表范围外，返回 null——那种情况下画一条线
+/// 只会让人以为是 bug。抽成纯函数是为了单测能固定「现在」来验算。
+double? nowLineTopFor(
+  DateTime now,
+  DateTime monday,
+  int gridStart,
+  int gridEnd,
+  double pxPerMinute,
+) {
+  final today = DateTime(now.year, now.month, now.day);
+  final weekEnd = monday.add(const Duration(days: 7));
+  if (today.isBefore(monday) || !today.isBefore(weekEnd)) return null;
+  final minutes = now.hour * 60 + now.minute;
+  if (minutes < gridStart || minutes > gridEnd) return null;
+  return (minutes - gridStart) * pxPerMinute;
+}
+
+/// 把调色板色压暗一档，做色块左边的竖条。
+/// 不另写一套颜色表——换配色时只要改 coursePalette，这里会自动跟上。
+Color deepen(Color color) => Color.alphaBlend(const Color(0x2E000000), color);
+
 class TimetableScreen extends StatefulWidget {
   const TimetableScreen({
     super.key,
@@ -37,13 +62,15 @@ class _TimetableScreenState extends State<TimetableScreen> {
   /// 左栏宽度（节次序号 + 起止时刻）。
   static const double gutterWidth = 46;
 
-  /// 每分钟多少像素：45 分钟一节 = 42dp，10 分钟课间 = 9.4dp。
+  /// 每分钟多少像素：45 分钟一节 = 56dp，10 分钟课间 = 12.5dp。
   ///
-  /// 2026-11-22 按用户选的路径 A 从 1.25 砍到 0.9375（正好 −25%）。
-  /// 整天网格随之从 1044dp 缩到 783dp，一屏能多看一节课左右。
-  /// ⚠ 缩放本身不难，难的是块内两处**绝对 dp 阈值**（见 [_block]）：
-  /// 单节块只有 42dp，地点/「非本周」的阈值必须一起降，否则这两样会直接消失。
-  static const double pxPerMinute = 0.9375;
+  /// 2026-11-23 用户改主意：课表优先当「好看的展示页」，不再追求一屏塞下
+  /// 更多课，所以从路径 A 的 0.9375 恢复到 1.25，并把省下的空间用于留白、
+  /// 字号层级和色块边界。整天网格 783dp → 1044dp。
+  static const double pxPerMinute = 1.25;
+
+  /// 当前时间线的颜色。和「今天」日期胶囊同色，一眼能看出是同一套标记。
+  static const Color nowLineColor = Color(0xFF1976D2);
 
   /// 以「本周」为原点的虚拟页码。左右各 260 周（约 5 年），够翻了。
   static const int originPage = 260;
@@ -66,6 +93,11 @@ class _TimetableScreenState extends State<TimetableScreen> {
   Map<String, Color> _colors = const {};
   bool _loading = true;
 
+  /// 当前时间线每分钟动一次。用 Timer 而不是依赖页面重建——
+  /// 用户可能就停在这一页盯着看，不刷新的话那条线会一直是打开时的位置。
+  DateTime _now = DateTime.now();
+  Timer? _clockTimer;
+
   PeriodTable get _table => widget.settings.periodTable;
 
   DateTime _mondayOf(int page) =>
@@ -83,6 +115,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
 
   @override
   void dispose() {
+    _clockTimer?.cancel();
     _pageController.dispose();
     super.dispose();
   }
@@ -90,6 +123,9 @@ class _TimetableScreenState extends State<TimetableScreen> {
   @override
   void initState() {
     super.initState();
+    _clockTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() => _now = DateTime.now());
+    });
     _load();
   }
 
@@ -163,7 +199,10 @@ class _TimetableScreenState extends State<TimetableScreen> {
   /// 左右滑动负责，翻到别的周时右边会飘出「回到本周」。
   Widget _weekPage(DateTime monday) {
     final days = List.generate(7, (i) => monday.add(Duration(days: i)));
-    final now = DateTime.now();
+    final now = _now;
+    // 只有「本周」且现在落在作息表范围内才画时间线
+    final lineTop = nowLineTopFor(now, monday, _gridStart, _gridEnd, pxPerMinute);
+    final todayIndex = now.weekday - 1;
     return Column(
       key: Key('tt_week_${dateKey(monday)}'),
       children: [
@@ -198,17 +237,18 @@ class _TimetableScreenState extends State<TimetableScreen> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _timeGutter(),
-                  for (final day in days)
+                  _timeGutter(nowLineTop: lineTop),
+                  for (var i = 0; i < days.length; i++)
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, constraints) => _dayColumn(
-                          day,
+                          days[i],
                           constraints.maxWidth,
                           isToday:
-                              day.year == now.year &&
-                              day.month == now.month &&
-                              day.day == now.day,
+                              days[i].year == now.year &&
+                              days[i].month == now.month &&
+                              days[i].day == now.day,
+                          nowLineTop: i == todayIndex ? lineTop : null,
                         ),
                       ),
                     ),
@@ -221,7 +261,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
     );
   }
 
-  /// 星期 + 日期。今天用深色胶囊压住日期，和其他天区分开。
+  /// 星期 + 日期。今天用主题蓝胶囊压住日期，和其他天区分开。
   Widget _dayHeader(DateTime day, {required bool isToday}) {
     return Column(
       children: [
@@ -229,13 +269,13 @@ class _TimetableScreenState extends State<TimetableScreen> {
           '一二三四五六日'[day.weekday - 1],
           style: const TextStyle(fontSize: 11, color: Colors.grey),
         ),
-        const SizedBox(height: 2),
+        const SizedBox(height: 4),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
           decoration: isToday
               ? BoxDecoration(
-                  color: const Color(0xFF22252A),
-                  borderRadius: BorderRadius.circular(9),
+                  color: nowLineColor,
+                  borderRadius: BorderRadius.circular(12),
                 )
               : null,
           child: Text(
@@ -247,18 +287,32 @@ class _TimetableScreenState extends State<TimetableScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 2),
+        const SizedBox(height: 4),
       ],
     );
   }
 
-  /// 左栏：第 N 节 + 起 / 止时刻。
-  Widget _timeGutter() {
+  /// 左栏：第 N 节 + 起 / 止时刻。当前时间在右边缘用一个小圆点标出，
+  /// 和今天那一列的横线首尾呼应。
+  Widget _timeGutter({double? nowLineTop}) {
     return SizedBox(
       width: gutterWidth,
       height: _totalHeight,
       child: Stack(
         children: [
+          if (nowLineTop != null)
+            Positioned(
+              top: nowLineTop - 3,
+              right: 1,
+              child: Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                  color: nowLineColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
           for (final slot in _table.slots)
             Positioned(
               top: (parseHm(slot.start) - _gridStart) * pxPerMinute - 4,
@@ -270,8 +324,8 @@ class _TimetableScreenState extends State<TimetableScreen> {
                     slot.label,
                     style: const TextStyle(
                       fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF222222),
                     ),
                   ),
                   Text(
@@ -279,7 +333,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
                     style: const TextStyle(
                       fontSize: 9,
                       height: 1.2,
-                      color: Colors.grey,
+                      color: Color(0xFF9A9A9A),
                     ),
                   ),
                   Text(
@@ -287,7 +341,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
                     style: const TextStyle(
                       fontSize: 9,
                       height: 1.2,
-                      color: Colors.grey,
+                      color: Color(0xFF9A9A9A),
                     ),
                   ),
                 ],
@@ -298,14 +352,21 @@ class _TimetableScreenState extends State<TimetableScreen> {
     );
   }
 
-  Widget _dayColumn(DateTime day, double width, {required bool isToday}) {
+  Widget _dayColumn(
+    DateTime day,
+    double width, {
+    required bool isToday,
+    double? nowLineTop,
+  }) {
     final slots = layoutDay(_entriesFor(day));
+    // 横线是背景，不应该和课程块抢注意力；比之前再淡一档。
+    const line = Color(0xFFF2F2F2);
     return Container(
       width: width,
       height: _totalHeight,
       decoration: BoxDecoration(
-        color: isToday ? const Color(0xFF2A6FD6).withAlpha(10) : null,
-        border: Border(left: BorderSide(color: Colors.grey.shade200, width: 0.5)),
+        color: isToday ? const Color(0xFF2A6FD6).withAlpha(8) : null,
+        border: const Border(left: BorderSide(color: line, width: 0.5)),
       ),
       child: Stack(
         children: [
@@ -315,9 +376,17 @@ class _TimetableScreenState extends State<TimetableScreen> {
               top: (parseHm(slot.start) - _gridStart) * pxPerMinute,
               left: 0,
               right: 0,
-              child: Container(height: 0.5, color: Colors.grey.shade200),
+              child: const SizedBox(height: 0.5, child: ColoredBox(color: line)),
             ),
           for (final slot in slots) _block(slot, width),
+          // 当前时间线压在课程块之上，否则会被块盖住看不见
+          if (nowLineTop != null)
+            Positioned(
+              top: nowLineTop,
+              left: 0,
+              right: 0,
+              child: Container(height: 1.2, color: nowLineColor),
+            ),
         ],
       ),
     );
@@ -352,7 +421,8 @@ class _TimetableScreenState extends State<TimetableScreen> {
     // 单节块从 56.3dp 缩到 42.2dp 之后，原来的 52/44 会让「@教室」和
     // 「非本周」标签同时消失（样图里周三体育的 @操场 就是这么没的）。
     // 2026-11-22 路径 A：一起降到 40/36，保住这两项信息。
-    final showLocation = height >= 40 && (entry.location ?? '').isNotEmpty;
+    final shortLocation = displayLocation(entry.location);
+    final showLocation = height >= 40 && shortLocation.isNotEmpty;
     final showGhostTag = isGhost && height >= 36;
 
     /// 按块高动态分配「字号 / 行数预算」，不再写死一档。
@@ -363,26 +433,32 @@ class _TimetableScreenState extends State<TimetableScreen> {
     ///
     /// 现在的算法：先按高度选一套字号，再把地点和标签占掉的高度扣掉，
     /// 剩下的全给标题，标题超了就省略号——信息种类不丢，长名字让位。
+    // 展示优先：内边距给足 4dp，只有极端矮的块才收紧。
     final compact = height < 50;
     final middle = !compact && height < 120;
-    final padV = compact ? 1.0 : (middle ? 2.0 : 3.0);
+    // 单节块再省 1dp 内边距：56dp 里塞标题 + 地点 + 标签，差这 1dp 就会溢出
+    final padV = compact ? 2.0 : (height < 70 ? 3.0 : 4.0);
 
-    final titleFont = compact ? 8.8 : (middle ? 10.0 : 10.5);
-    final titleLineFactor = compact ? 1.08 : (middle ? 1.14 : 1.18);
+    final titleFont = compact ? 9.5 : 11.5;
+    final titleLineFactor = compact ? 1.12 : 1.2;
     final titleLineHeight = titleFont * titleLineFactor;
 
-    final locFont = compact ? 7.5 : (middle ? 8.0 : 8.5);
-    final locLineHeight = locFont * (compact ? 1.1 : (middle ? 1.15 : 1.2));
-    final locTop = compact ? 0.5 : 2.0;
+    final locFont = compact ? 8.0 : 9.0;
+    final locLineHeight = locFont * 1.2;
+    final locTop = compact ? 1.0 : 3.0;
     // 灰块要多留一行给「非本周」标签，普通块把教室名多显示一行。
     // 这样两节连堂的 ELC1 既能看全课名，也不会把 @东海岸-E教201-阶梯 掐掉。
     final locMaxLines = compact
         ? 1
-        : (middle ? (showGhostTag ? 2 : 3) : 4);
+        : (height < 70 ? 1 : (middle ? (showGhostTag ? 2 : 3) : 4));
 
     final tagFont = compact ? 7.0 : 8.0;
     final tagPadV = compact ? 0.0 : 1.0;
     final tagHeight = showGhostTag ? tagFont * 1.1 + tagPadV : 0.0;
+
+    // 左侧竖条在块内单独画（不能做成四边异色 border + 圆角，Flutter 会抛异常）
+    final barWidth = entry.type == EntryType.task ? 0.0 : (isGhost ? 2.0 : 3.0);
+    final barColor = isGhost ? base.withAlpha(150) : deepen(base);
 
     final innerHeight = height - 2 * padV;
     final reserved =
@@ -403,20 +479,40 @@ class _TimetableScreenState extends State<TimetableScreen> {
             ? null
             : () => widget.onOpenEntry!(entry),
         child: Container(
-          padding: EdgeInsets.symmetric(horizontal: 3, vertical: padV),
+          // 竖条要跟着圆角裁切，所以这里开 antiAlias。
+          clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: fill,
             border: entry.type == EntryType.task
                 ? Border.all(color: Colors.grey.shade400)
                 : (isGhost
-                      ? Border.all(color: base.withAlpha(90), width: 0.8)
-                      : null),
-            borderRadius: BorderRadius.circular(7),
+                    ? Border.all(color: base.withAlpha(90), width: 0.8)
+                    : null),
+            borderRadius: BorderRadius.circular(9),
           ),
-          child: ClipRect(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          child: Stack(
+            children: [
+              if (entry.type != EntryType.task)
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: barWidth,
+                  child: ColoredBox(color: barColor),
+                ),
+              Positioned.fill(
+                child: Padding(
+                  // 文字从竖条右侧 4dp 开始，四边留白才均匀
+                  padding: EdgeInsets.only(
+                    left: barWidth + 4,
+                    right: 4,
+                    top: padV,
+                    bottom: padV,
+                  ),
+                  child: ClipRect(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                 Text(
                   entry.title,
                   // 行数按上面算出来的预算，超了就省略号，不再写死档位。
@@ -425,7 +521,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
                   style: TextStyle(
                     fontSize: titleFont,
                     height: titleLineFactor,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w600,
                     color: textColor,
                   ),
                 ),
@@ -433,17 +529,17 @@ class _TimetableScreenState extends State<TimetableScreen> {
                   Padding(
                     padding: EdgeInsets.only(top: locTop),
                     child: Text(
-                      '@${entry.location}',
+                      '@$shortLocation',
                       // 一天只有 45dp 宽，窄栏里 13 个字的教室名要好几行；
                       // 行数同样按块高给（短块 1 行，高块 4 行）。
                       maxLines: locMaxLines,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: locFont,
-                        height: compact ? 1.1 : (middle ? 1.15 : 1.2),
+                        height: 1.2,
                         color: entry.type == EntryType.event
                             ? Colors.white70
-                            : Colors.black54,
+                            : const Color(0xFF4A4A4A),
                       ),
                     ),
                   ),
@@ -467,8 +563,12 @@ class _TimetableScreenState extends State<TimetableScreen> {
                       ),
                     ),
                   ),
-              ],
-            ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),

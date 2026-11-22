@@ -11,6 +11,23 @@ Color colorFromHex(String? hex) {
   return Color(raw.length == 6 ? 0xFF000000 | value : value);
 }
 
+/// 教室里重复的校区前缀在窄栏里纯占字数，展示时剥掉。
+///
+/// 只影响显示，原始值照旧存库——编辑页看到的还是完整地址。
+/// 汕头大学两个校区：`东海岸-` 和 `金平-`。
+String displayLocation(String? raw) {
+  if (raw == null) return '';
+  var value = raw.trim();
+  const prefixes = ['东海岸-', '金平-', '东海岸', '金平'];
+  for (final prefix in prefixes) {
+    if (value.startsWith(prefix) && value.length > prefix.length) {
+      value = value.substring(prefix.length).trimLeft();
+      break;
+    }
+  }
+  return value;
+}
+
 /// 优先级配色。普通不配色（不显示标记，避免满屏花花绿绿），
 /// 重要用橙、紧急用红——红橙在这一屏里没有别的含义，不会和课程色撞。
 Color priorityColor(int priority) => switch (priority) {
@@ -121,6 +138,7 @@ class TimelineItem extends StatelessWidget {
     // 于是日程页满屏一样的蓝条、跟课表的花色对不上。
     final color = courseColors?[entry.title] ?? courseColorFor(entry);
     final isTask = entry.type == EntryType.task;
+    final location = displayLocation(entry.location);
     // 有优先级时左侧色条跟着变，扫一眼就能挑出要紧的那几条。
     final barColor = entry.isImportant ? priorityColor(entry.priority) : color;
 
@@ -163,8 +181,7 @@ class TimelineItem extends StatelessWidget {
         subtitle: Text(
           [
             entry.timeLabel,
-            if (entry.location != null && entry.location!.isNotEmpty)
-              entry.location!,
+            if (location.isNotEmpty) location,
           ].join('  ·  '),
         ),
         trailing: Row(
