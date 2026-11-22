@@ -253,6 +253,7 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
                   now: DateTime.now(),
                 ) ??
                 startAt,
+            eventTime: startAt,
             title: title,
             wasEditing: _isEditing,
           );
@@ -293,6 +294,7 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
             await _reschedule(
               id: _taskScheduleId(id),
               at: at,
+              eventTime: dueAt!,
               title: title,
               wasEditing: _isEditing,
             );
@@ -336,6 +338,7 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
   Future<void> _reschedule({
     required int id,
     required DateTime at,
+    required DateTime eventTime,
     required String title,
     required bool wasEditing,
   }) async {
@@ -349,7 +352,9 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
       await widget.notifications.schedule(
         id: id,
         title: title,
-        body: reminderBody(title, _leadMinutes),
+        // 用实际剩余时间算正文，不是用配置的提前量：退化成立刻提醒时
+        // 两者不相等，写配置值会高报。
+        body: reminderBody(title, actualLeadMinutes(eventTime, at)),
         eventTime: at,
       );
     } catch (e) {

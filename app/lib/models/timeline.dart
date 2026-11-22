@@ -127,6 +127,18 @@ String reminderBody(String title, int leadMinutes) {
   return '还有 $leadMinutes 分钟：$title';
 }
 
+/// 提醒时刻相对事件时刻实际还剩多少分钟（四舍五入）。
+///
+/// 正文必须用这个算出来的值，不能用用户配置的提前量：`resolveRemindAt`
+/// 退化成立刻提醒时，实际剩下的时间比配置的提前量短。例如 14:58 建
+/// 「15:00 考试，提前 5 分钟」，配置值是 5，实际只剩 2 分钟——写「还有 5
+/// 分钟」就是在骗人。
+int actualLeadMinutes(DateTime eventTime, DateTime fireAt) {
+  final seconds = eventTime.difference(fireAt).inSeconds;
+  final minutes = (seconds / 60).round();
+  return minutes < 0 ? 0 : minutes;
+}
+
 /// 算最终该在什么时刻弹提醒。
 ///
 /// 三个分支：

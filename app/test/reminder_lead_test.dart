@@ -85,6 +85,57 @@ void main() {
     });
   });
 
+  group('正文按实际剩余时间算，不按配置值', () {
+    test('正常提前时，实际剩余等于配置的提前量', () {
+      final event = DateTime(2026, 11, 22, 15);
+      final fire = resolveRemindAt(
+        eventTime: event,
+        leadMinutes: 15,
+        now: now,
+      )!;
+      expect(actualLeadMinutes(event, fire), 15);
+      expect(reminderBody('考试', actualLeadMinutes(event, fire)), '还有 15 分钟：考试');
+    });
+
+    test('退化成立刻提醒时，正文报真实剩余而不是配置的 5 分钟', () {
+      // 14:58 建「15:00 事件，提前 5 分钟」：减完是 14:53 已过 → 立刻提醒。
+      // 实际只剩 2 分钟，这时候写「还有 5 分钟」就是在骗人。
+      final buggyNow = DateTime(2026, 11, 22, 14, 58);
+      final event = DateTime(2026, 11, 22, 15);
+      final fire = resolveRemindAt(
+        eventTime: event,
+        leadMinutes: 5,
+        now: buggyNow,
+      )!;
+
+      final actual = actualLeadMinutes(event, fire);
+      expect(actual, 2);
+      expect(actual, lessThan(5));
+      expect(reminderBody('考试', actual), '还有 2 分钟：考试');
+    });
+
+    test('到点提醒剩余为 0，正文是「到点了」', () {
+      final event = DateTime(2026, 11, 22, 15);
+      final fire = resolveRemindAt(eventTime: event, leadMinutes: 0, now: now)!;
+      expect(actualLeadMinutes(event, fire), 0);
+      expect(reminderBody('考试', 0), '到点了：考试');
+    });
+
+    test('剩余不足半分钟按 0 处理，不会报出「还有 0 分钟」', () {
+      final event = DateTime(2026, 11, 22, 14, 31);
+      final fire = event.subtract(const Duration(seconds: 20));
+      final actual = actualLeadMinutes(event, fire);
+      expect(actual, 0);
+      expect(reminderBody('考试', actual), '到点了：考试');
+    });
+
+    test('提醒晚于事件（异常输入）不会算出负数', () {
+      final event = DateTime(2026, 11, 22, 15);
+      final fire = event.add(const Duration(minutes: 5));
+      expect(actualLeadMinutes(event, fire), 0);
+    });
+  });
+
   group('模型向后兼容', () {
     test('事件缺 remind_before_minutes 时按 0（到点）', () {
       final item = EventItem.fromMap({

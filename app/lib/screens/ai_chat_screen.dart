@@ -122,17 +122,17 @@ class _AiChatScreenState extends State<AiChatScreen> {
 
   Future<void> _scheduleIfNeeded(
     int id,
-    DateTime at,
-    String title, {
-    int leadMinutes = 0,
-  }) async {
-    if (!at.isAfter(DateTime.now())) return;
+    DateTime fireAt,
+    DateTime eventTime,
+    String title,
+  ) async {
+    if (!fireAt.isAfter(DateTime.now())) return;
     try {
       await widget.notifications.schedule(
         id: id,
         title: title,
-        body: reminderBody(title, leadMinutes),
-        eventTime: at,
+        body: reminderBody(title, actualLeadMinutes(eventTime, fireAt)),
+        eventTime: fireAt,
       );
     } catch (_) {
       // 数据已落盘；提醒失败不回滚录入。
@@ -186,8 +186,8 @@ class _AiChatScreenState extends State<AiChatScreen> {
                   now: DateTime.now(),
                 ) ??
                 at,
+            at,
             title,
-            leadMinutes: defaultEventLeadMinutes,
           );
           break;
         case DraftType.task:
@@ -220,6 +220,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                     now: DateTime.now(),
                   ) ??
                   dueAt,
+              dueAt,
               title,
             );
           }
