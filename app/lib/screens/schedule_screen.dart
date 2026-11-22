@@ -145,6 +145,17 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           // 横向 ListView 会把这一条上的左右滑动吞掉，翻周就翻不动了。
           child: Row(
             children: [
+              // 2026-11-22：删掉顶部日期范围行之后月份就看不见了。
+              // 这里照抄课表页左上角的写法，只占 42dp 宽、不额外增高。
+              SizedBox(
+                width: 42,
+                child: Center(
+                  child: Text(
+                    '${monday.month}月',
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                ),
+              ),
               for (var i = 0; i < 7; i++)
                 Expanded(
                   child: _dayChip(

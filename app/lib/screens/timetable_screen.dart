@@ -37,8 +37,13 @@ class _TimetableScreenState extends State<TimetableScreen> {
   /// 左栏宽度（节次序号 + 起止时刻）。
   static const double gutterWidth = 46;
 
-  /// 每分钟多少像素：45 分钟一节 = 56px，10 分钟课间 = 12.5px。
-  static const double pxPerMinute = 1.25;
+  /// 每分钟多少像素：45 分钟一节 = 42dp，10 分钟课间 = 9.4dp。
+  ///
+  /// 2026-11-22 按用户选的路径 A 从 1.25 砍到 0.9375（正好 −25%）。
+  /// 整天网格随之从 1044dp 缩到 783dp，一屏能多看一节课左右。
+  /// ⚠ 缩放本身不难，难的是块内两处**绝对 dp 阈值**（见 [_block]）：
+  /// 单节块只有 42dp，地点/「非本周」的阈值必须一起降，否则这两样会直接消失。
+  static const double pxPerMinute = 0.9375;
 
   /// 以「本周」为原点的虚拟页码。左右各 260 周（约 5 年），够翻了。
   static const int originPage = 260;
@@ -343,8 +348,49 @@ class _TimetableScreenState extends State<TimetableScreen> {
       EntryType.task => Colors.black87,
     };
 
-    final showLocation = height >= 52 && (entry.location ?? '').isNotEmpty;
-    final showGhostTag = isGhost && height >= 44;
+    // 这两条阈值是**绝对 dp**，不会跟着 pxPerMinute 自动缩放。
+    // 单节块从 56.3dp 缩到 42.2dp 之后，原来的 52/44 会让「@教室」和
+    // 「非本周」标签同时消失（样图里周三体育的 @操场 就是这么没的）。
+    // 2026-11-22 路径 A：一起降到 40/36，保住这两项信息。
+    final showLocation = height >= 40 && (entry.location ?? '').isNotEmpty;
+    final showGhostTag = isGhost && height >= 36;
+
+    /// 按块高动态分配「字号 / 行数预算」，不再写死一档。
+    ///
+    /// 起因：缩短 25% 后，两节连堂只剩 94dp，长课名（ELC1综合英语与沟通能力）
+    /// 要 4 行、地点 2 行、再加「非本周」标签，真机上直接撑出红色 OVERFLOWED。
+    /// 单节块 42dp 更挤，原来那种「全都按常规字号排」的做法必然溢出。
+    ///
+    /// 现在的算法：先按高度选一套字号，再把地点和标签占掉的高度扣掉，
+    /// 剩下的全给标题，标题超了就省略号——信息种类不丢，长名字让位。
+    final compact = height < 50;
+    final middle = !compact && height < 120;
+    final padV = compact ? 1.0 : (middle ? 2.0 : 3.0);
+
+    final titleFont = compact ? 8.8 : (middle ? 10.0 : 10.5);
+    final titleLineFactor = compact ? 1.08 : (middle ? 1.14 : 1.18);
+    final titleLineHeight = titleFont * titleLineFactor;
+
+    final locFont = compact ? 7.5 : (middle ? 8.0 : 8.5);
+    final locLineHeight = locFont * (compact ? 1.1 : (middle ? 1.15 : 1.2));
+    final locTop = compact ? 0.5 : 2.0;
+    // 灰块要多留一行给「非本周」标签，普通块把教室名多显示一行。
+    // 这样两节连堂的 ELC1 既能看全课名，也不会把 @东海岸-E教201-阶梯 掐掉。
+    final locMaxLines = compact
+        ? 1
+        : (middle ? (showGhostTag ? 2 : 3) : 4);
+
+    final tagFont = compact ? 7.0 : 8.0;
+    final tagPadV = compact ? 0.0 : 1.0;
+    final tagHeight = showGhostTag ? tagFont * 1.1 + tagPadV : 0.0;
+
+    final innerHeight = height - 2 * padV;
+    final reserved =
+        (showLocation ? (locLineHeight + locTop) * locMaxLines : 0) + tagHeight;
+    final titleMaxLines = ((innerHeight - reserved) / titleLineHeight)
+        .floor()
+        .clamp(1, 8)
+        .toInt();
 
     return Positioned(
       top: top,
@@ -357,7 +403,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
             ? null
             : () => widget.onOpenEntry!(entry),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
+          padding: EdgeInsets.symmetric(horizontal: 3, vertical: padV),
           decoration: BoxDecoration(
             color: fill,
             border: entry.type == EntryType.task
@@ -373,26 +419,28 @@ class _TimetableScreenState extends State<TimetableScreen> {
               children: [
                 Text(
                   entry.title,
-                  maxLines: height > 120 ? 8 : (height > 70 ? 5 : 2),
+                  // 行数按上面算出来的预算，超了就省略号，不再写死档位。
+                  maxLines: titleMaxLines,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 10.5,
-                    height: 1.18,
+                    fontSize: titleFont,
+                    height: titleLineFactor,
                     fontWeight: FontWeight.w500,
                     color: textColor,
                   ),
                 ),
                 if (showLocation)
                   Padding(
-                    padding: const EdgeInsets.only(top: 2),
+                    padding: EdgeInsets.only(top: locTop),
                     child: Text(
                       '@${entry.location}',
-                      // 一天只有 45dp 宽，窄栏里 13 个字的教室名要 4 行才放得下
-                      maxLines: 4,
+                      // 一天只有 45dp 宽，窄栏里 13 个字的教室名要好几行；
+                      // 行数同样按块高给（短块 1 行，高块 4 行）。
+                      maxLines: locMaxLines,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 8.5,
-                        height: 1.2,
+                        fontSize: locFont,
+                        height: compact ? 1.1 : (middle ? 1.15 : 1.2),
                         color: entry.type == EntryType.event
                             ? Colors.white70
                             : Colors.black54,
@@ -402,17 +450,21 @@ class _TimetableScreenState extends State<TimetableScreen> {
                 const Spacer(),
                 if (showGhostTag)
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 1,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: compact ? 2.5 : 4,
+                      vertical: tagPadV,
                     ),
                     decoration: BoxDecoration(
                       color: Colors.white.withAlpha(200),
                       borderRadius: BorderRadius.circular(3),
                     ),
-                    child: const Text(
+                    child: Text(
                       '非本周',
-                      style: TextStyle(fontSize: 8, color: Colors.black45),
+                      style: TextStyle(
+                        fontSize: tagFont,
+                        height: 1.1, // 和上面 tagHeight 的估算保持一致
+                        color: Colors.black45,
+                      ),
                     ),
                   ),
               ],

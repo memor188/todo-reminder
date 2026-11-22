@@ -89,6 +89,61 @@ void main() {
     expect(find.text('非本周'), findsOneWidget);
   });
 
+  // 2026-11-22 路径 A：格子砍 25% 后单节块只有 42dp。
+  // 展示地点/「非本周」的阈值必须跟着降，否则这两样会无声无息地消失。
+  testWidgets('缩短后单节的非本周课仍显示 @教室 和「非本周」', (tester) async {
+    useTallScreen(tester);
+    final m = monday();
+    await tester.pumpWidget(
+      buildApp([
+        Course(
+          title: '单节的体育',
+          dayOfWeek: 1,
+          startTime: '08:00',
+          endTime: '08:45',
+          location: '操场',
+          weeks: '1',
+          semesterStart: d(m.subtract(const Duration(days: 21))),
+          semesterEnd: d(m.add(const Duration(days: 140))),
+        ),
+      ]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('课表'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('单节的体育'), findsOneWidget);
+    expect(find.text('@操场'), findsOneWidget);
+    expect(find.text('非本周'), findsOneWidget);
+  });
+
+  // 真机截图抓到过红色 OVERFLOWED：两节连堂的「非本周」课，长课名 4 行
+  // + 地点 2 行 + 标签，在砍到 94dp 的块里塞不下。这里用同款长数据兜住。
+  testWidgets('缩短后两节连堂的非本周长课名不撑爆格子', (tester) async {
+    useTallScreen(tester);
+    final m = monday();
+    await tester.pumpWidget(
+      buildApp([
+        Course(
+          title: 'ELC1综合英语与沟通能力',
+          dayOfWeek: 4,
+          startTime: '08:00',
+          endTime: '09:40',
+          location: '东海岸-E教527',
+          weeks: '1',
+          semesterStart: d(m.subtract(const Duration(days: 21))),
+          semesterEnd: d(m.add(const Duration(days: 140))),
+        ),
+      ]),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('课表'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('非本周'), findsOneWidget);
+    expect(find.text('ELC1综合英语与沟通能力'), findsOneWidget);
+  });
+
   testWidgets('地点按 @教室 显示，和参考图一致', (tester) async {
     useTallScreen(tester);
     final m = monday();

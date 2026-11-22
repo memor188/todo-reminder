@@ -117,6 +117,14 @@ void main() {
     expect(find.byKey(const Key('prev_week')), findsNothing);
     expect(find.byKey(const Key('next_week')), findsNothing);
     expect(find.byKey(Key('week_${dateKey(monday)}')), findsOneWidget);
+    // 日期范围行删了，但月份还得看得见（用户 2026-11-22 反馈）
+    expect(
+      find.descendant(
+        of: find.byKey(Key('week_${dateKey(monday)}')),
+        matching: find.text('${monday.month}月'),
+      ),
+      findsOneWidget,
+    );
 
     // 往左滑 = 下一周
     await tester.drag(find.byKey(const Key('week_pager')), const Offset(-200, 0));
