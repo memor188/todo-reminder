@@ -56,6 +56,9 @@ class _TimetableScreenState extends State<TimetableScreen> {
   );
 
   AppData _data = const AppData(courses: [], events: [], tasks: []);
+
+  /// 课名 → 底色，整屏统一分配（见 [assignCourseColors]），撞色会自动错开。
+  Map<String, Color> _colors = const {};
   bool _loading = true;
 
   PeriodTable get _table => widget.settings.periodTable;
@@ -90,6 +93,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
     if (!mounted) return;
     setState(() {
       _data = data;
+      _colors = assignCourseColors(data.courses);
       _loading = false;
     });
   }
@@ -341,7 +345,9 @@ class _TimetableScreenState extends State<TimetableScreen> {
   Widget _block(GridSlot slot, double columnWidth) {
     final entry = slot.entry;
     final isGhost = !entry.isThisWeek;
-    final base = courseColorFor(entry);
+    final base =
+        _colors[entry.title] ??
+        courseColorFor(entry);
     final start = slot.startMinutes.clamp(_gridStart, _gridEnd);
     final end = slot.endMinutes.clamp(_gridStart, _gridEnd);
     final top = (start - _gridStart) * pxPerMinute;
@@ -405,10 +411,11 @@ class _TimetableScreenState extends State<TimetableScreen> {
                     padding: const EdgeInsets.only(top: 2),
                     child: Text(
                       '@${entry.location}',
-                      maxLines: 3,
+                      // 一天只有 45dp 宽，窄栏里 13 个字的教室名要 4 行才放得下
+                      maxLines: 4,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 9,
+                        fontSize: 8.5,
                         height: 1.2,
                         color: entry.type == EntryType.event
                             ? Colors.white70

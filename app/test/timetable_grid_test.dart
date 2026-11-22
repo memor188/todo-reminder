@@ -175,4 +175,48 @@ void main() {
       );
     });
   });
+
+  group('整屏配色统一分配', () {
+    Course course(String title, {String? color}) => Course(
+      title: title,
+      dayOfWeek: 1,
+      startTime: '08:00',
+      endTime: '09:40',
+      color: color,
+      semesterStart: '2026-09-07',
+      semesterEnd: '2027-01-17',
+    );
+
+    test('十门课十个色，一个不撞', () {
+      final colors = assignCourseColors([
+        for (final title in ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸'])
+          course(title),
+      ]);
+      expect(colors.length, 10);
+      expect(colors.values.toSet().length, 10);
+    });
+
+    test('超过十门才开始重复，且前十个仍然各不相同', () {
+      final titles = [
+        for (var i = 0; i < 14; i++) '课程$i',
+      ];
+      final colors = assignCourseColors(titles.map(course));
+      expect(colors.length, 14);
+      expect(colors.values.toSet().length, coursePalette.length);
+    });
+
+    test('用户设过颜色的课保留自己的色，也不被别的课抢走', () {
+      final colors = assignCourseColors([
+        course('指定色', color: 'FF5722'),
+        course('普通课'),
+      ]);
+      expect(colors['指定色'], colorFromHex('FF5722'));
+      expect(colors['普通课'], isNot(colorFromHex('FF5722')));
+    });
+
+    test('同名课（一周上两次）拿同一个色', () {
+      final colors = assignCourseColors([course('高数'), course('高数')]);
+      expect(colors.length, 1);
+    });
+  });
 }

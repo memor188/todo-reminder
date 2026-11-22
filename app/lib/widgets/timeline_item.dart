@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/course.dart';
 import '../models/timeline.dart';
 
 Color colorFromHex(String? hex) {
@@ -20,6 +21,9 @@ Color priorityColor(int priority) => switch (priority) {
 
 /// 课表块底色（2026-11-22 按用户给的参考图定）：都是低饱和马卡龙色，
 /// 深色小字压在上面才读得清；七门课同屏也不会看成一团。
+///
+/// 备选色 10 个而不是刚够用的 7 个：真课表一学期十几门课，色少了必然撞色，
+/// 相邻两天两门课同色会让人以为是一门课。
 const List<Color> coursePalette = [
   Color(0xFFF8A5B8), // 粉
   Color(0xFF8CBBF0), // 蓝
@@ -28,6 +32,9 @@ const List<Color> coursePalette = [
   Color(0xFFF7A876), // 橙
   Color(0xFF9BD49B), // 绿
   Color(0xFFF0C96B), // 黄
+  Color(0xFF86CFE0), // 湖蓝
+  Color(0xFFEFA3C8), // 玫红
+  Color(0xFFA9B4EE), // 靛
 ];
 
 /// 课程取色：用户/导入设过色就用它，否则按课名算一个稳定颜色。
@@ -46,6 +53,47 @@ int _stableHash(String value) {
     hash = (hash * 31 + code) & 0x7FFFFFFF;
   }
   return hash;
+}
+
+/// 给一屏课程统一配色：先按课名哈希取色，撞了就顺延到下一个还没被占的色。
+///
+/// 为什么不是每门课各自哈希就完事：调色板只有 10 个，十几门课必然撞色，
+/// 而撞色的两门课如果恰好挨着，会让人以为是同一门课。统一分配能保证
+/// 「这一屏能看到的课」两两不同色（课数超过调色板才会重复）。
+/// 用户手动指定过 `color` 的课不参与分配，也不会被别的课抢走。
+Map<String, Color> assignCourseColors(Iterable<Course> courses) {
+  final result = <String, Color>{};
+  final taken = <Color>{};
+  final pending = <Course>[];
+
+  for (final course in courses) {
+    if (result.containsKey(course.title)) continue;
+    final hex = course.color;
+    if (hex != null && hex.isNotEmpty) {
+      final color = colorFromHex(hex);
+      result[course.title] = color;
+      taken.add(color);
+    } else {
+      pending.add(course);
+    }
+  }
+
+  for (final course in pending) {
+    var index = _stableHash(course.title) % coursePalette.length;
+    for (var step = 0; step < coursePalette.length; step++) {
+      final candidate = coursePalette[(index + step) % coursePalette.length];
+      if (!taken.contains(candidate)) {
+        taken.add(candidate);
+        result[course.title] = candidate;
+        break;
+      }
+    }
+    result.putIfAbsent(
+      course.title,
+      () => coursePalette[index], // 色用光了，允许重复
+    );
+  }
+  return result;
 }
 
 class TimelineItem extends StatelessWidget {
