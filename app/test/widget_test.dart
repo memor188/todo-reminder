@@ -94,28 +94,67 @@ void main() {
     expect(find.text('这一天暂无日程'), findsOneWidget);
   });
 
-  testWidgets('翻周按钮可切换到下一周', (WidgetTester tester) async {
+  testWidgets('日程页左右滑动翻周，顶部不再写日期范围', (WidgetTester tester) async {
+    // 视口换成 360 宽：拖 200px 就过了半页，PageView 才会翻页。
+    useTallScreen(tester);
     final now = DateTime.now();
-    final monday = now.subtract(Duration(days: now.weekday - 1));
+    final monday = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).subtract(Duration(days: now.weekday - 1));
+    final sunday = monday.add(const Duration(days: 6));
     final nextMonday = monday.add(const Duration(days: 7));
+
     await tester.pumpWidget(buildApp(db: FakeDbService()));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(Key('day_${dateKey(nextMonday)}')), findsNothing);
-    await tester.tap(find.byKey(const Key('next_week')));
+    // 2026-11-22 用户要求：顶部那行「11月16日 - 11月22日」多余，删掉。
+    expect(
+      find.text('${monday.month}月${monday.day}日 - ${sunday.month}月${sunday.day}日'),
+      findsNothing,
+    );
+    expect(find.byKey(const Key('prev_week')), findsNothing);
+    expect(find.byKey(const Key('next_week')), findsNothing);
+    expect(find.byKey(Key('week_${dateKey(monday)}')), findsOneWidget);
+
+    // 往左滑 = 下一周
+    await tester.drag(find.byKey(const Key('week_pager')), const Offset(-200, 0));
     await tester.pumpAndSettle();
-    expect(find.byKey(Key('day_${dateKey(nextMonday)}')), findsOneWidget);
+
+    expect(find.byKey(Key('week_${dateKey(nextMonday)}')), findsOneWidget);
+
+    // 往右滑 = 回到本周
+    await tester.drag(find.byKey(const Key('week_pager')), const Offset(200, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(Key('week_${dateKey(monday)}')), findsOneWidget);
   });
 
-  testWidgets('课表 tab 显示周网格与翻周按钮', (WidgetTester tester) async {
+  testWidgets('课表 tab 显示周网格（箭头已删，靠滑动翻周）', (WidgetTester tester) async {
+    final now = DateTime.now();
+    final monday = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).subtract(Duration(days: now.weekday - 1));
+    final sunday = monday.add(const Duration(days: 6));
+
     await tester.pumpWidget(buildApp(db: FakeDbService()));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('课表'));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('tt_prev_week')), findsOneWidget);
-    expect(find.byKey(const Key('tt_next_week')), findsOneWidget);
+    expect(find.byKey(const Key('tt_week_pager')), findsOneWidget);
+    expect(find.byKey(Key('tt_week_${dateKey(monday)}')), findsOneWidget);
+    // 顶部的日期范围和左右箭头已按用户要求删掉
+    expect(find.byKey(const Key('tt_prev_week')), findsNothing);
+    expect(find.byKey(const Key('tt_next_week')), findsNothing);
+    expect(
+      find.text('${monday.month}月${monday.day}日 - ${sunday.month}月${sunday.day}日'),
+      findsNothing,
+    );
     // 表头是单字周几（参考图样式），不再是「周一」
     expect(find.text('一'), findsWidgets);
     expect(find.text('日'), findsWidgets);
@@ -135,17 +174,13 @@ void main() {
       now.day,
     ).subtract(Duration(days: now.weekday - 1));
     final nextMonday = monday.add(const Duration(days: 7));
-    final nextSunday = nextMonday.add(const Duration(days: 6));
-    String range(DateTime from, DateTime to) =>
-        '${from.month}月${from.day}日 - ${to.month}月${to.day}日';
 
     await tester.pumpWidget(buildApp(db: FakeDbService()));
     await tester.pumpAndSettle();
     await tester.tap(find.text('课表'));
     await tester.pumpAndSettle();
 
-    expect(find.text(range(monday, monday.add(const Duration(days: 6)))),
-        findsOneWidget);
+    expect(find.byKey(Key('tt_week_${dateKey(monday)}')), findsOneWidget);
 
     // 往左滑 = 下一周
     await tester.drag(
@@ -154,7 +189,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text(range(nextMonday, nextSunday)), findsOneWidget);
+    expect(find.byKey(Key('tt_week_${dateKey(nextMonday)}')), findsOneWidget);
+
+    // 翻到别的周时右边会飘出「回到本周」
+    expect(find.byKey(const Key('tt_back_to_this_week')), findsOneWidget);
 
     // 往右滑 = 回到本周
     await tester.drag(
@@ -163,8 +201,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text(range(monday, monday.add(const Duration(days: 6)))),
-        findsOneWidget);
+    expect(find.byKey(Key('tt_week_${dateKey(monday)}')), findsOneWidget);
+    expect(find.byKey(const Key('tt_back_to_this_week')), findsNothing);
   });
 
   testWidgets('课程录入可选择单双周并带回保存', (WidgetTester tester) async {

@@ -25,6 +25,10 @@ Future<void> main() async {
   await db.init();
   final settings = await SettingsService.load();
 
+  // 响铃开关决定投递走哪条通道，必须在启动重排提醒之前注入，
+  // 否则首次启动那批闹钟会按默认（只震动）排下去，用户明明开着响铃。
+  notifications.setSoundEnabled(settings.notifySoundEnabled);
+
   runApp(
     App(
       notifications: notifications,

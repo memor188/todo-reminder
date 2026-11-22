@@ -21,10 +21,34 @@ class NotificationService implements ReminderSink {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
-  /// channel id 定为常量，以后不许改——改了旧通知的设置全丢。
-  static const String channelId = 'todo_reminders';
+  /// 两个通道：**默认震动**，响铃可选（2026-11-22 用户要求）。
+  ///
+  /// 为什么必须是两个 id 而不是一个 id 改配置：Android 8+ 的响铃/震动是
+  /// **channel 属性**，通道一旦建好就不能改（`createNotificationChannel`
+  /// 对已存在的 id 只更新名称和描述，声音字段会被系统忽略）。想让用户随时
+  /// 开关响铃，只能预先建两条通道，调度时按用户选择投递到其中一条。
+  ///
+  /// 老通道 `todo_reminders`（会响铃）因此弃用——见 [legacyChannelId]。
+  static const String channelIdVibrate = 'todo_reminders_vibe';
+  static const String channelIdSound = 'todo_reminders_sound';
+
+  /// V0/V1 建的旧通道，只有响铃没有开关。启动时删掉，免得系统设置里留一条
+  /// 名不副实的「待办提醒」。
+  static const String legacyChannelId = 'todo_reminders';
+
   static const String channelName = '待办提醒';
   static const String channelDescription = '到点提醒事项';
+
+  /// 当前是否响铃。默认 false，由 [SettingsService.notifySoundEnabled] 注入。
+  bool _soundEnabled = false;
+
+  bool get soundEnabled => _soundEnabled;
+
+  /// 切换响铃。**只改投递走哪条通道**，已排好的通知不会自动搬过去，
+  /// 调用方必须跟着做一次整体重排（`ReminderService.syncAll`）。
+  void setSoundEnabled(bool value) => _soundEnabled = value;
+
+  String get channelId => _soundEnabled ? channelIdSound : channelIdVibrate;
 
   bool _initialized = false;
 
@@ -48,22 +72,40 @@ class NotificationService implements ReminderSink {
       },
     );
 
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+
     // 必须显式创建 channel：Android 16 上 alarm 触发时 receiver 在独立
     // 进程里发通知，若 channel 不存在会被系统静默丢弃（真机实测踩坑）。
-    // V2 硬提醒：保持 channelId 不变（改 id 会丢用户设置），只升级行为。
-    const channel = AndroidNotificationChannel(
-      channelId,
-      channelName,
-      description: channelDescription,
+    const vibrate = AndroidNotificationChannel(
+      channelIdVibrate,
+      '$channelName（震动）',
+      description: '到点震动提醒，不出声',
+      importance: Importance.max,
+      playSound: false,
+      enableVibration: true,
+    );
+    const sound = AndroidNotificationChannel(
+      channelIdSound,
+      '$channelName（响铃 + 震动）',
+      description: '到点响铃并震动',
       importance: Importance.max,
       playSound: true,
       enableVibration: true,
     );
-    await _plugin
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >()
-        ?.createNotificationChannel(channel);
+    await android?.createNotificationChannel(vibrate);
+    await android?.createNotificationChannel(sound);
+
+    // 删旧通道会连带丢掉排在它上面的通知，所以这一句之后
+    // `_AppState._syncReminders()` 必须跑成功（它在启动时无条件跑一次，
+    // 排的 id 与这里无关，只是换通道重投）。
+    try {
+      await android?.deleteNotificationChannel(channelId: legacyChannelId);
+    } catch (_) {
+      // 通道本来就不存在（全新安装）也会走到这里，不算错误。
+    }
 
     _initialized = true;
   }
@@ -92,14 +134,16 @@ class NotificationService implements ReminderSink {
     return await android.areNotificationsEnabled() ?? false;
   }
 
-  NotificationDetails get _notificationDetails => const NotificationDetails(
+  NotificationDetails get _notificationDetails => NotificationDetails(
     android: AndroidNotificationDetails(
       channelId,
-      channelName,
+      _soundEnabled ? '$channelName（响铃 + 震动）' : '$channelName（震动）',
       channelDescription: channelDescription,
       importance: Importance.max,
       priority: Priority.max,
-      playSound: true,
+      // 8.0 以下没有通道，靠这两个开关起作用；8.0 以上以通道为准，
+      // 这里写成和通道一致，免得两处说法打架。
+      playSound: _soundEnabled,
       enableVibration: true,
       audioAttributesUsage: AudioAttributesUsage.alarm,
       // 按"闹钟"归类：锁屏 heads-up + 不受静音影响（vivo 实测锁屏默认隐藏

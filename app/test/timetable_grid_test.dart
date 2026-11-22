@@ -219,4 +219,50 @@ void main() {
       expect(colors.length, 1);
     });
   });
+
+  // 2026-11-22 用户要求「日程的条目对应的颜色要和课表的一样」。
+  group('日程条目复用课表配色', () {
+    TimelineEntry entry(String title) => TimelineEntry(
+      key: 'course_1',
+      sourceId: 1,
+      type: EntryType.course,
+      title: title,
+      sortMinutes: 8 * 60,
+      timeLabel: '08:00',
+    );
+
+    Widget wrap(Widget child) =>
+        MaterialApp(home: Scaffold(body: child));
+
+    testWidgets('传入课表配色时，底色就是这个色（不再是默认蓝）', (tester) async {
+      const swatch = Color(0xFFF8A5B8);
+      await tester.pumpWidget(
+        wrap(
+          TimelineItem(
+            entry: entry('高等数学'),
+            courseColors: const {'高等数学': swatch},
+          ),
+        ),
+      );
+      final card = tester.widget<Card>(find.byType(Card));
+      // 卡片底色是「淡色 + 白底」混出来的不透明色（带 alpha 会被自己的阴影透脏）
+      expect(card.color, Color.alphaBlend(swatch.withAlpha(46), Colors.white));
+    });
+
+    testWidgets('没传配色时回落到课表调色板，不是老的默认蓝', (tester) async {
+      await tester.pumpWidget(wrap(TimelineItem(entry: entry('高等数学'))));
+      final card = tester.widget<Card>(find.byType(Card));
+      final legacyBlue = Color.alphaBlend(
+        const Color(0xFF1976D2).withAlpha(46),
+        Colors.white,
+      );
+      expect(card.color, isNot(legacyBlue));
+      expect(
+        coursePalette.map(
+          (c) => Color.alphaBlend(c.withAlpha(46), Colors.white),
+        ),
+        contains(card.color),
+      );
+    });
+  });
 }

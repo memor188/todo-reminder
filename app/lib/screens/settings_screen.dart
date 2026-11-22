@@ -37,6 +37,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _apiKey = TextEditingController();
   final _model = TextEditingController();
   bool _includeConfig = false;
+  bool _notifySound = false;
   bool _loading = true;
 
   @override
@@ -58,8 +59,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _baseUrl.text = settings.baseUrl;
     _apiKey.text = settings.apiKey;
     _model.text = settings.model;
+    _notifySound = settings.notifySoundEnabled;
     if (!mounted) return;
     setState(() => _loading = false);
+  }
+
+  /// 响铃开关（默认只震动）。
+  ///
+  /// 改完必须整轮重排：通道 id 是写进每条已排通知里的，不重排就只是
+  /// 「设置变了、闹钟还按老通道响」，用户会以为开关坏了。
+  Future<void> _toggleSound(bool value) async {
+    await widget.settings.saveNotifySound(value);
+    widget.notifications.setSoundEnabled(value);
+    if (!mounted) return;
+    setState(() => _notifySound = value);
+    widget.onDataChanged?.call();
+    _toast(value ? '到点会响铃 + 震动' : '到点只震动，不出声');
   }
 
   void _toast(String message) {
@@ -220,6 +235,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: const Text('课表导入（丢 .xls 文件 / 截图 / 粘贴文字）'),
         ),
         const SizedBox(height: 12),
+        SwitchListTile(
+          key: const Key('settings_notify_sound'),
+          value: _notifySound,
+          onChanged: _toggleSound,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('提醒响铃'),
+          subtitle: const Text('关掉只震动（默认）；打开则响铃 + 震动'),
+        ),
+        const Divider(height: 24),
         const Text(
           'AI 供应商（OpenAI 兼容）',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),

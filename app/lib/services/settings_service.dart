@@ -32,6 +32,7 @@ class SettingsService {
   static const String keyModel = 'ai_model';
   static const String keySemesterPlans = 'semester_plans';
   static const String keyPeriodTable = 'period_table';
+  static const String keyNotifySound = 'notify_sound';
 
   static const String defaultBaseUrl = 'https://api.deepseek.com';
 
@@ -103,6 +104,24 @@ class SettingsService {
     await _prefs.remove(keyBaseUrl);
     await _prefs.remove(keyApiKey);
     await _prefs.remove(keyModel);
+  }
+
+  /// 到点提醒是否响铃。默认 false = **只震动**（2026-11-22 用户要求：
+  /// 「提醒方式变成震动，响铃可选」）。
+  ///
+  /// 旧版本没有这个键，读不到就当 false——正好是老用户升级后默认变震动。
+  bool get notifySoundEnabled {
+    final fromPrefs = _prefs?.getBool(keyNotifySound);
+    if (fromPrefs != null) return fromPrefs;
+    return _memory[keyNotifySound] == 'true';
+  }
+
+  Future<void> saveNotifySound(bool enabled) async {
+    if (_prefs == null) {
+      _memory[keyNotifySound] = enabled ? 'true' : 'false';
+      return;
+    }
+    await _prefs.setBool(keyNotifySound, enabled);
   }
 
   /// 学期方案列表。存坏了按空处理，不让一条脏数据把录入页拖垮。

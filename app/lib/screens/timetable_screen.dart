@@ -124,67 +124,43 @@ class _TimetableScreenState extends State<TimetableScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final monday = _mondayOf(_page);
-    final days = List.generate(7, (i) => monday.add(Duration(days: i)));
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            IconButton(
-              key: const Key('tt_prev_week'),
-              icon: const Icon(Icons.chevron_left),
-              onPressed: () => _goToPage(_page - 1),
-            ),
-            Text(
-              '${monday.month}月${monday.day}日 - '
-              '${days.last.month}月${days.last.day}日',
-              style: const TextStyle(color: Colors.grey, fontSize: 13),
-            ),
-            IconButton(
-              key: const Key('tt_next_week'),
-              icon: const Icon(Icons.chevron_right),
-              onPressed: () => _goToPage(_page + 1),
-            ),
-          ],
-        ),
-        Expanded(
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : Stack(
-                  children: [
-                    PageView.builder(
-                      // 手势左右滑动翻周。网格本身是纵向滚动，两者方向不同不冲突。
-                      key: const Key('tt_week_pager'),
-                      controller: _pageController,
-                      itemCount: pageCount,
-                      onPageChanged: (index) => setState(() => _page = index),
-                      itemBuilder: (context, index) =>
-                          _weekPage(_mondayOf(index)),
+    return _loading
+        ? const Center(child: CircularProgressIndicator())
+        : Stack(
+            children: [
+              PageView.builder(
+                // 手势左右滑动翻周。网格本身是纵向滚动，两者方向不同不冲突。
+                key: const Key('tt_week_pager'),
+                controller: _pageController,
+                itemCount: pageCount,
+                onPageChanged: (index) => setState(() => _page = index),
+                itemBuilder: (context, index) => _weekPage(_mondayOf(index)),
+              ),
+              if (_page != originPage)
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: Center(
+                    child: _BackToThisWeekButton(
+                      onTap: () => _goToPage(originPage),
                     ),
-                    if (_page != originPage)
-                      Positioned(
-                        right: 0,
-                        top: 0,
-                        bottom: 0,
-                        child: Center(
-                          child: _BackToThisWeekButton(
-                            onTap: () => _goToPage(originPage),
-                          ),
-                        ),
-                      ),
-                  ],
+                  ),
                 ),
-        ),
-      ],
-    );
+            ],
+          );
   }
 
   /// 一页 = 一整周（星期表头 + 网格）。表头跟着页面一起滑，日期才对得上。
+  ///
+  /// 顶部原来那行「11月16日 - 11月22日」+ 左右箭头已经删掉（2026-11-22 用户
+  /// 要求）：表头本来就把每一天的日期写出来了，再写一遍纯属重复；翻周改由
+  /// 左右滑动负责，翻到别的周时右边会飘出「回到本周」。
   Widget _weekPage(DateTime monday) {
     final days = List.generate(7, (i) => monday.add(Duration(days: i)));
     final now = DateTime.now();
     return Column(
+      key: Key('tt_week_${dateKey(monday)}'),
       children: [
         Row(
           children: [

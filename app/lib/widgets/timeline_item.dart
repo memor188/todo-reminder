@@ -102,22 +102,41 @@ class TimelineItem extends StatelessWidget {
     required this.entry,
     this.onToggleTask,
     this.onTap,
+    this.courseColors,
   });
 
   final TimelineEntry entry;
   final ValueChanged<TimelineEntry>? onToggleTask;
   final ValueChanged<TimelineEntry>? onTap;
 
+  /// 课名 → 底色，由页面用 [assignCourseColors] 算好传进来。
+  ///
+  /// 必须和课表页共用同一份分配结果，不然同一门课在两页会显示成两种颜色
+  /// （2026-11-22 用户要求「日程的条目颜色要和课表一样」）。
+  final Map<String, Color>? courseColors;
+
   @override
   Widget build(BuildContext context) {
-    final color = colorFromHex(entry.colorHex);
+    // 以前这里是 colorFromHex(entry.colorHex)，没设色的课一律回落到默认蓝，
+    // 于是日程页满屏一样的蓝条、跟课表的花色对不上。
+    final color = courseColors?[entry.title] ?? courseColorFor(entry);
     final isTask = entry.type == EntryType.task;
     // 有优先级时左侧色条跟着变，扫一眼就能挑出要紧的那几条。
     final barColor = entry.isImportant ? priorityColor(entry.priority) : color;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
-      color: entry.type == EntryType.course ? color.withAlpha(18) : null,
+      // 课程卡带一层课表同款淡色，和左边色条呼应；事件/任务不加底色，
+      // 免得整屏糊成一片。
+      //
+      // 必须用 alphaBlend 先跟白底混成**不透明**色。直接给带 alpha 的颜色
+      // （哪怕 alpha 只有 30）卡片等于半透明，自己的阴影会从底下透上来，
+      // 淡粉淡绿全变成一片灰紫——真机截图一眼就看得出来。
+      color: entry.type == EntryType.course
+          ? Color.alphaBlend(color.withAlpha(46), Colors.white)
+          : null,
+      // Material 3 的 Card 会再叠一层 surfaceTint（主题紫），这里关掉。
+      surfaceTintColor: Colors.transparent,
       child: ListTile(
         onTap: onTap == null ? null : () => onTap!(entry),
         leading: isTask
@@ -128,11 +147,11 @@ class TimelineItem extends StatelessWidget {
                 onPressed: () => onToggleTask?.call(entry),
               )
             : Container(
-                width: 4,
+                width: 5,
                 height: 44,
                 decoration: BoxDecoration(
                   color: barColor,
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: BorderRadius.circular(3),
                 ),
               ),
         title: Text(
