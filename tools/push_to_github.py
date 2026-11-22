@@ -262,12 +262,15 @@ def append_commits(token, owner, repo):
     if len(local) < len(remote):
         sys.exit(f"本地提交数({len(local)})比远端({len(remote)})少，不能用追加模式")
 
+    # 两边都是新→旧，但本地比远端多 offset 个，要对齐后才能比 tree。
+    # 远端最新的第 1 个 = 本地的第 offset+1 个。
+    offset = len(local) - len(remote)
     for index, item in enumerate(remote):
-        local_tree = git("rev-parse", f"{local[index]}^{{tree}}").strip()
+        local_tree = git("rev-parse", f"{local[index + offset]}^{{tree}}").strip()
         if local_tree != item["commit"]["tree"]["sha"]:
             sys.exit(f"第 {index + 1} 个提交的 tree 对不上，历史已分叉，不能用追加模式")
 
-    pending = list(reversed(local[: len(local) - len(remote)]))
+    pending = list(reversed(local[:offset]))
     if not pending:
         print("没有新提交要推")
         return
