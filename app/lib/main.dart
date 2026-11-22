@@ -150,6 +150,7 @@ class _AppState extends State<App> {
               TimetableScreen(
                 key: ValueKey('timetable_$_scheduleVersion'),
                 db: widget.db,
+                settings: widget.settings,
                 onOpenEntry: _openEntry,
               ),
               SettingsScreen(

@@ -18,6 +18,36 @@ Color priorityColor(int priority) => switch (priority) {
   _ => const Color(0xFF757575),
 };
 
+/// 课表块底色（2026-11-22 按用户给的参考图定）：都是低饱和马卡龙色，
+/// 深色小字压在上面才读得清；七门课同屏也不会看成一团。
+const List<Color> coursePalette = [
+  Color(0xFFF8A5B8), // 粉
+  Color(0xFF8CBBF0), // 蓝
+  Color(0xFF7FD0BE), // 青
+  Color(0xFFB6A4E8), // 紫
+  Color(0xFFF7A876), // 橙
+  Color(0xFF9BD49B), // 绿
+  Color(0xFFF0C96B), // 黄
+];
+
+/// 课程取色：用户/导入设过色就用它，否则按课名算一个稳定颜色。
+///
+/// 用自己写的哈希而不是 `String.hashCode`：后者在同一进程内稳定，
+/// 但不同 Dart 版本/不同运行之间不保证一致，会让同一门课换次启动就变色。
+Color courseColorFor(TimelineEntry entry) {
+  final hex = entry.colorHex;
+  if (hex != null && hex.isNotEmpty) return colorFromHex(hex);
+  return coursePalette[_stableHash(entry.title) % coursePalette.length];
+}
+
+int _stableHash(String value) {
+  var hash = 7;
+  for (final code in value.codeUnits) {
+    hash = (hash * 31 + code) & 0x7FFFFFFF;
+  }
+  return hash;
+}
+
 class TimelineItem extends StatelessWidget {
   const TimelineItem({
     super.key,

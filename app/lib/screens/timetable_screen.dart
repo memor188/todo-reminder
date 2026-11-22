@@ -1,17 +1,32 @@
 import 'package:flutter/material.dart';
 
+import '../models/period_table.dart';
 import '../models/timeline.dart';
 import '../services/db_service.dart';
+import '../services/settings_service.dart';
 import '../widgets/timeline_item.dart';
 
-/// 课表周网格（2026-11-21 按用户要求重做）：
-/// - 时间轴 08:00–23:00，两小时为一段；
-/// - 有开始/结束时间的条目按真实区间铺满对应时段（08:00–09:40 占约 5/6 段）；
-/// - 无结束时间的条目按 1 小时撑开；重叠条目并排平分宽度。
+/// 课表周网格（2026-11-22 按用户给的参考图重做）。
+///
+/// 三处和上一版不同：
+/// 1. 左栏从「整点刻度」换成**节次**（第 N 节 + 起止时刻），跟教务系统的
+///    「第 3-5 节」对得上；
+/// 2. 课程块是**按课名稳定取色**的马卡龙色块，标题 + @地点，一眼分得清哪门课；
+/// 3. 本周不上的课**照样画出来**，灰着并标「非本周」——课表的价值在于看到全貌，
+///    而不是只看到"这一周要上的"。
+///
+/// 位置仍按真实分钟数换算（[layoutDay]），所以 08:00–09:40 的课自然压在
+/// 第 1、2 节两行上，事件、任务这类不对齐节次的条目也能落在正确高度。
 class TimetableScreen extends StatefulWidget {
-  const TimetableScreen({super.key, required this.db, this.onOpenEntry});
+  const TimetableScreen({
+    super.key,
+    required this.db,
+    required this.settings,
+    this.onOpenEntry,
+  });
 
   final DbService db;
+  final SettingsService settings;
   final void Function(TimelineEntry entry)? onOpenEntry;
 
   @override
@@ -19,17 +34,13 @@ class TimetableScreen extends StatefulWidget {
 }
 
 class _TimetableScreenState extends State<TimetableScreen> {
-  /// 网格起点与终点（当天分钟数）。
-  static const int gridStartMinutes = 8 * 60;
-  static const int gridEndMinutes = 23 * 60;
+  /// 左栏宽度（节次序号 + 起止时刻）。
+  static const double gutterWidth = 46;
 
-  /// 一小时占多少像素。两小时一段 = 112px。
-  static const double pxPerHour = 56;
-
-  static const int segmentHours = 2;
+  /// 每分钟多少像素：45 分钟一节 = 56px，10 分钟课间 = 12.5px。
+  static const double pxPerMinute = 1.25;
 
   /// 以「本周」为原点的虚拟页码。左右各 260 周（约 5 年），够翻了。
-  /// 用「虚拟页 + 基准周一」而不是直接存日期，是为了让 PageView 能双向无限翻。
   static const int originPage = 260;
   static const int pageCount = 521;
 
@@ -46,6 +57,8 @@ class _TimetableScreenState extends State<TimetableScreen> {
 
   AppData _data = const AppData(courses: [], events: [], tasks: []);
   bool _loading = true;
+
+  PeriodTable get _table => widget.settings.periodTable;
 
   DateTime _mondayOf(int page) =>
       _baseMonday.add(Duration(days: (page - originPage) * 7));
@@ -81,15 +94,29 @@ class _TimetableScreenState extends State<TimetableScreen> {
     });
   }
 
-  List<TimelineEntry> _entriesFor(DateTime day) => buildTimeline(
-    day: day,
-    courses: _data.courses,
-    events: _data.events,
-    tasks: _data.tasks,
-  );
+  int get _gridStart =>
+      _table.isEmpty ? 8 * 60 : parseHm(_table.slots.first.start);
 
-  double get _totalHeight =>
-      (gridEndMinutes - gridStartMinutes) / 60 * pxPerHour;
+  int get _gridEnd =>
+      _table.isEmpty ? 22 * 60 : parseHm(_table.slots.last.end);
+
+  double get _totalHeight => (_gridEnd - _gridStart) * pxPerMinute;
+
+  /// 当天所有要画的条目：本周的（课程/事件/任务）+ 本周不上但课表里有的课。
+  List<TimelineEntry> _entriesFor(DateTime day) {
+    final base = buildTimeline(
+      day: day,
+      courses: _data.courses,
+      events: _data.events,
+      tasks: _data.tasks,
+    );
+    final ghosts = <TimelineEntry>[];
+    for (final course in _data.courses) {
+      final grid = expandCourseForGrid(course, day);
+      if (grid.isNotEmpty && !grid.first.isThisWeek) ghosts.add(grid.first);
+    }
+    return [...base, ...ghosts];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -108,7 +135,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
             Text(
               '${monday.month}月${monday.day}日 - '
               '${days.last.month}月${days.last.day}日',
-              style: const TextStyle(color: Colors.grey),
+              style: const TextStyle(color: Colors.grey, fontSize: 13),
             ),
             IconButton(
               key: const Key('tt_next_week'),
@@ -120,13 +147,29 @@ class _TimetableScreenState extends State<TimetableScreen> {
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())
-              : PageView.builder(
-                  // 手势左右滑动翻周。网格本身是纵向滚动，两者方向不同不冲突。
-                  key: const Key('tt_week_pager'),
-                  controller: _pageController,
-                  itemCount: pageCount,
-                  onPageChanged: (index) => setState(() => _page = index),
-                  itemBuilder: (context, index) => _weekPage(_mondayOf(index)),
+              : Stack(
+                  children: [
+                    PageView.builder(
+                      // 手势左右滑动翻周。网格本身是纵向滚动，两者方向不同不冲突。
+                      key: const Key('tt_week_pager'),
+                      controller: _pageController,
+                      itemCount: pageCount,
+                      onPageChanged: (index) => setState(() => _page = index),
+                      itemBuilder: (context, index) =>
+                          _weekPage(_mondayOf(index)),
+                    ),
+                    if (_page != originPage)
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        bottom: 0,
+                        child: Center(
+                          child: _BackToThisWeekButton(
+                            onTap: () => _goToPage(originPage),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
         ),
       ],
@@ -141,68 +184,36 @@ class _TimetableScreenState extends State<TimetableScreen> {
       children: [
         Row(
           children: [
-            const SizedBox(width: 40),
-            for (var i = 0; i < 7; i++)
+            SizedBox(
+              width: gutterWidth,
+              child: Center(
+                child: Text(
+                  '${monday.month}月',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ),
+            ),
+            for (final day in days)
               Expanded(
-                child: Column(
-                  children: [
-                    Text(
-                      '周${'一二三四五六日'[i]}',
-                      style: const TextStyle(fontSize: 11),
-                    ),
-                    Text(
-                      '${days[i].day}',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color:
-                            days[i].year == now.year &&
-                                days[i].month == now.month &&
-                                days[i].day == now.day
-                            ? Colors.blue
-                            : null,
-                      ),
-                    ),
-                  ],
+                child: _dayHeader(
+                  day,
+                  isToday:
+                      day.year == now.year &&
+                      day.month == now.month &&
+                      day.day == now.day,
                 ),
               ),
           ],
         ),
-        const Divider(height: 1),
+        const Divider(height: 8, thickness: 0.5),
         Expanded(
           child: SingleChildScrollView(
             child: SizedBox(
-              height: _totalHeight,
+              height: _totalHeight + 12,
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(
-                    width: 40,
-                    height: _totalHeight,
-                    child: Stack(
-                      children: [
-                        for (
-                          var hour = gridStartMinutes ~/ 60;
-                          hour * 60 < gridEndMinutes;
-                          hour += segmentHours
-                        )
-                          Positioned(
-                            top:
-                                (hour * 60 - gridStartMinutes) / 60 * pxPerHour,
-                            left: 0,
-                            right: 0,
-                            child: Text(
-                              '$hour',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
+                  _timeGutter(),
                   for (final day in days)
                     Expanded(
                       child: LayoutBuilder(
@@ -225,28 +236,101 @@ class _TimetableScreenState extends State<TimetableScreen> {
     );
   }
 
+  /// 星期 + 日期。今天用深色胶囊压住日期，和其他天区分开。
+  Widget _dayHeader(DateTime day, {required bool isToday}) {
+    return Column(
+      children: [
+        Text(
+          '一二三四五六日'[day.weekday - 1],
+          style: const TextStyle(fontSize: 11, color: Colors.grey),
+        ),
+        const SizedBox(height: 2),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+          decoration: isToday
+              ? BoxDecoration(
+                  color: const Color(0xFF22252A),
+                  borderRadius: BorderRadius.circular(9),
+                )
+              : null,
+          child: Text(
+            '${day.day}',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: isToday ? Colors.white : Colors.black87,
+            ),
+          ),
+        ),
+        const SizedBox(height: 2),
+      ],
+    );
+  }
+
+  /// 左栏：第 N 节 + 起 / 止时刻。
+  Widget _timeGutter() {
+    return SizedBox(
+      width: gutterWidth,
+      height: _totalHeight,
+      child: Stack(
+        children: [
+          for (final slot in _table.slots)
+            Positioned(
+              top: (parseHm(slot.start) - _gridStart) * pxPerMinute - 4,
+              left: 0,
+              right: 0,
+              child: Column(
+                children: [
+                  Text(
+                    slot.label,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  Text(
+                    slot.start,
+                    style: const TextStyle(
+                      fontSize: 9,
+                      height: 1.2,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  Text(
+                    slot.end,
+                    style: const TextStyle(
+                      fontSize: 9,
+                      height: 1.2,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _dayColumn(DateTime day, double width, {required bool isToday}) {
     final slots = layoutDay(_entriesFor(day));
     return Container(
       width: width,
       height: _totalHeight,
       decoration: BoxDecoration(
-        color: isToday ? Colors.blue.withAlpha(8) : null,
-        border: Border(left: BorderSide(color: Colors.grey.shade200)),
+        color: isToday ? const Color(0xFF2A6FD6).withAlpha(10) : null,
+        border: Border(left: BorderSide(color: Colors.grey.shade200, width: 0.5)),
       ),
       child: Stack(
         children: [
-          // 两小时一段的横线
-          for (
-            var minutes = gridStartMinutes;
-            minutes < gridEndMinutes;
-            minutes += segmentHours * 60
-          )
+          // 每节起点的横线，把网格感做出来
+          for (final slot in _table.slots)
             Positioned(
-              top: (minutes - gridStartMinutes) / 60 * pxPerHour,
+              top: (parseHm(slot.start) - _gridStart) * pxPerMinute,
               left: 0,
               right: 0,
-              child: Container(height: 1, color: Colors.grey.shade200),
+              child: Container(height: 0.5, color: Colors.grey.shade200),
             ),
           for (final slot in slots) _block(slot, width),
         ],
@@ -256,19 +340,29 @@ class _TimetableScreenState extends State<TimetableScreen> {
 
   Widget _block(GridSlot slot, double columnWidth) {
     final entry = slot.entry;
-    final color = colorFromHex(entry.colorHex);
-    final start = slot.startMinutes.clamp(gridStartMinutes, gridEndMinutes);
-    final end = slot.endMinutes.clamp(gridStartMinutes, gridEndMinutes);
-    final top = (start - gridStartMinutes) / 60 * pxPerHour;
-    final height = ((end - start) / 60 * pxPerHour).clamp(22.0, _totalHeight);
+    final isGhost = !entry.isThisWeek;
+    final base = courseColorFor(entry);
+    final start = slot.startMinutes.clamp(_gridStart, _gridEnd);
+    final end = slot.endMinutes.clamp(_gridStart, _gridEnd);
+    final top = (start - _gridStart) * pxPerMinute;
+    final height = ((end - start) * pxPerMinute).clamp(18.0, _totalHeight);
     final slotWidth = columnWidth / slot.columns;
     final left = slotWidth * slot.column;
 
-    final fill = switch (entry.type) {
-      EntryType.course => color.withAlpha(38),
-      EntryType.event => color.withAlpha(90),
+    // 课程用低饱和底色 + 深色字；事件用浓一点的底色 + 白字；任务留白描边。
+    final Color fill = switch (entry.type) {
+      EntryType.course => isGhost ? base.withAlpha(46) : base.withAlpha(232),
+      EntryType.event => base.withAlpha(150),
       EntryType.task => Colors.white,
     };
+    final Color textColor = switch (entry.type) {
+      EntryType.course => isGhost ? Colors.black45 : const Color(0xFF2B2B2B),
+      EntryType.event => Colors.white,
+      EntryType.task => Colors.black87,
+    };
+
+    final showLocation = height >= 52 && (entry.location ?? '').isNotEmpty;
+    final showGhostTag = isGhost && height >= 44;
 
     return Positioned(
       top: top,
@@ -281,13 +375,15 @@ class _TimetableScreenState extends State<TimetableScreen> {
             ? null
             : () => widget.onOpenEntry!(entry),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
           decoration: BoxDecoration(
             color: fill,
             border: entry.type == EntryType.task
                 ? Border.all(color: Colors.grey.shade400)
-                : Border(left: BorderSide(color: color, width: 3)),
-            borderRadius: BorderRadius.circular(4),
+                : (isGhost
+                      ? Border.all(color: base.withAlpha(90), width: 0.8)
+                      : null),
+            borderRadius: BorderRadius.circular(7),
           ),
           child: ClipRect(
             child: Column(
@@ -295,30 +391,82 @@ class _TimetableScreenState extends State<TimetableScreen> {
               children: [
                 Text(
                   entry.title,
-                  maxLines: height > 52 ? 3 : 2,
+                  maxLines: height > 120 ? 8 : (height > 70 ? 5 : 2),
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 10,
-                    height: 1.2,
-                    color: entry.type == EntryType.event
-                        ? Colors.white
-                        : Colors.black87,
+                    fontSize: 10.5,
+                    height: 1.18,
+                    fontWeight: FontWeight.w500,
+                    color: textColor,
                   ),
                 ),
-                if (height > 40)
-                  Text(
-                    entry.timeLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 9,
-                      color: entry.type == EntryType.event
-                          ? Colors.white70
-                          : Colors.black54,
+                if (showLocation)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      '@${entry.location}',
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 9,
+                        height: 1.2,
+                        color: entry.type == EntryType.event
+                            ? Colors.white70
+                            : Colors.black54,
+                      ),
+                    ),
+                  ),
+                const Spacer(),
+                if (showGhostTag)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(200),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                    child: const Text(
+                      '非本周',
+                      style: TextStyle(fontSize: 8, color: Colors.black45),
                     ),
                   ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 翻到别的周时飘在右边的小按钮，一键回到本周。
+class _BackToThisWeekButton extends StatelessWidget {
+  const _BackToThisWeekButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      key: const Key('tt_back_to_this_week'),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF3A3F45).withAlpha(225),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(8),
+            bottomLeft: Radius.circular(8),
+          ),
+        ),
+        child: const SizedBox(
+          width: 14,
+          child: Text(
+            '回到本周',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 10, height: 1.25, color: Colors.white),
           ),
         ),
       ),

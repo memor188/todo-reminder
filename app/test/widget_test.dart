@@ -116,8 +116,12 @@ void main() {
 
     expect(find.byKey(const Key('tt_prev_week')), findsOneWidget);
     expect(find.byKey(const Key('tt_next_week')), findsOneWidget);
-    expect(find.text('周一'), findsWidgets);
-    expect(find.text('周日'), findsWidgets);
+    // 表头是单字周几（参考图样式），不再是「周一」
+    expect(find.text('一'), findsWidgets);
+    expect(find.text('日'), findsWidgets);
+    // 左栏是节次 + 起止时刻
+    expect(find.text('08:00'), findsOneWidget);
+    expect(find.text('08:45'), findsOneWidget);
   });
 
   testWidgets('课表可以左右滑动翻周（不用点箭头）', (WidgetTester tester) async {

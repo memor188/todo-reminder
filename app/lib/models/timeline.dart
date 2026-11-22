@@ -20,6 +20,7 @@ class TimelineEntry {
     this.colorHex,
     this.done = false,
     this.priority = priorityNormal,
+    this.isThisWeek = true,
   });
 
   final String key;
@@ -38,6 +39,12 @@ class TimelineEntry {
 
   /// 普通 / 重要 / 紧急，见 [priorityLabel]。课程恒为普通。
   final int priority;
+
+  /// 本周是否要上这门课（课表页用）。
+  ///
+  /// 课表要把「这门课存在、但本周不上」也画出来（灰着、带「非本周」标签），
+  /// 让人一眼看出课表全貌；[buildTimeline] 出来的日程列表则只留本周的。
+  final bool isThisWeek;
 
   bool get isImportant => priority >= priorityImportant;
 }
@@ -262,6 +269,36 @@ List<TimelineEntry> expandCourse(Course course, DateTime day) {
       location: course.location,
       note: course.color,
       colorHex: course.color,
+    ),
+  ];
+}
+
+/// 课表页专用：把课程展开成网格块，**本周不上也照样给**。
+///
+/// 和 [expandCourse] 的区别只有一点：不按周次过滤，而是把结果标上
+/// [TimelineEntry.isThisWeek] 让渲染层灰着画。学期范围之外（比如翻到暑假）
+/// 仍然返回空——那时候课表本来就没有课。
+List<TimelineEntry> expandCourseForGrid(Course course, DateTime day) {
+  final target = DateTime(day.year, day.month, day.day);
+  final start = parseDate(course.semesterStart);
+  final end = parseDate(course.semesterEnd);
+  if (target.isBefore(start) || target.isAfter(end)) return const [];
+  if (target.weekday != course.dayOfWeek) return const [];
+
+  final begin = parseHm(course.startTime);
+  return [
+    TimelineEntry(
+      key: 'course_${course.id}_${dateKey(target)}',
+      sourceId: course.id ?? 0,
+      type: EntryType.course,
+      title: course.title,
+      sortMinutes: begin,
+      timeLabel: '${course.startTime}–${course.endTime}',
+      endMinutes: parseHm(course.endTime),
+      location: course.location,
+      note: course.teacher,
+      colorHex: course.color,
+      isThisWeek: courseMeetsOn(course, target),
     ),
   ];
 }
