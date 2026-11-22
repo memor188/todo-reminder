@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/period_table.dart';
 import '../models/semester_plan.dart';
 
 /// AI 供应商配置 + 学期方案：只存本地，不进业务表、不进默认备份。
@@ -30,6 +31,7 @@ class SettingsService {
   static const String keyApiKey = 'ai_api_key';
   static const String keyModel = 'ai_model';
   static const String keySemesterPlans = 'semester_plans';
+  static const String keyPeriodTable = 'period_table';
 
   static const String defaultBaseUrl = 'https://api.deepseek.com';
   static const String defaultModel = 'deepseek-chat';
@@ -105,5 +107,27 @@ class SettingsService {
       return;
     }
     await _prefs.setString(keySemesterPlans, raw);
+  }
+
+  /// 作息表（节次 → 钟点）。没存过或存坏了都回落到汕大默认值——
+  /// 导入课表时宁可节次算错几节课，也不能因为一份脏配置整页打不开。
+  PeriodTable get periodTable {
+    final raw = _prefs?.getString(keyPeriodTable) ?? _memory[keyPeriodTable];
+    if (raw == null || raw.isEmpty) return PeriodTable.shantouDefault;
+    try {
+      return PeriodTable.fromJson(jsonDecode(raw)) ??
+          PeriodTable.shantouDefault;
+    } catch (_) {
+      return PeriodTable.shantouDefault;
+    }
+  }
+
+  Future<void> savePeriodTable(PeriodTable table) async {
+    final raw = jsonEncode(table.toJson());
+    if (_prefs == null) {
+      _memory[keyPeriodTable] = raw;
+      return;
+    }
+    await _prefs.setString(keyPeriodTable, raw);
   }
 }

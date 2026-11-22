@@ -367,4 +367,104 @@ void main() {
     expect(startField.controller!.text, start);
     expect(endField.controller!.text, end);
   });
+
+  testWidgets('我的页能进作息表，改完某节时间会存下来', (WidgetTester tester) async {
+    final settings = SettingsService.inMemory();
+    await tester.pumpWidget(buildApp(db: FakeDbService(), settings: settings));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+
+    final entry = find.byKey(const Key('settings_period_table'));
+    await tester.ensureVisible(entry);
+    await tester.pumpAndSettle();
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+
+    // 默认是汕大作息，第 3 节 10:00–10:45。
+    expect(find.text('作息表'), findsOneWidget);
+    expect(find.text('第 3 节'), findsOneWidget);
+    expect(find.text('10:00 – 10:45'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('period_row_3')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('period_start')), '10:10');
+    await tester.enterText(find.byKey(const Key('period_end')), '10:55');
+    await tester.tap(find.byKey(const Key('save_period')));
+    await tester.pumpAndSettle();
+
+    expect(settings.periodTable.byLabel('3')!.start, '10:10');
+    expect(settings.periodTable.byLabel('3')!.end, '10:55');
+    expect(find.text('10:10 – 10:55'), findsOneWidget);
+  });
+
+  testWidgets('作息表弹窗拒绝结束早于开始', (WidgetTester tester) async {
+    final settings = SettingsService.inMemory();
+    await tester.pumpWidget(buildApp(db: FakeDbService(), settings: settings));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    final entry = find.byKey(const Key('settings_period_table'));
+    await tester.ensureVisible(entry);
+    await tester.pumpAndSettle();
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('period_row_1')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('period_start')), '09:00');
+    await tester.enterText(find.byKey(const Key('period_end')), '08:00');
+    await tester.tap(find.byKey(const Key('save_period')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('period_message')), findsOneWidget);
+    // 没被改掉，还是原来的 08:00–08:45。
+    expect(settings.periodTable.byLabel('1')!.start, '08:00');
+  });
+
+  testWidgets('课表导入页空输入点解析给提示，不发请求', (WidgetTester tester) async {
+    final settings = SettingsService.inMemory();
+    await tester.pumpWidget(buildApp(db: FakeDbService(), settings: settings));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    final entry = find.byKey(const Key('settings_timetable_import'));
+    await tester.ensureVisible(entry);
+    await tester.pumpAndSettle();
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+
+    expect(find.text('课表导入'), findsOneWidget);
+    expect(find.textContaining('粘贴课表后点'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('timetable_parse')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('timetable_error')), findsOneWidget);
+    expect(find.textContaining('先把课表文字粘进来'), findsOneWidget);
+  });
+
+  testWidgets('没有学期方案时，导入页提示先去建方案', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      buildApp(
+        db: FakeDbService(),
+        settings: SettingsService.inMemory(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    final entry = find.byKey(const Key('settings_timetable_import'));
+    await tester.ensureVisible(entry);
+    await tester.pumpAndSettle();
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('还没有学期方案'), findsOneWidget);
+  });
 }

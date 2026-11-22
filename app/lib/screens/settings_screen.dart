@@ -10,7 +10,9 @@ import '../services/db_service.dart';
 import '../services/notification_service.dart';
 import '../services/settings_service.dart';
 import 'ai_chat_screen.dart';
+import 'period_table_screen.dart';
 import 'semester_plans_screen.dart';
+import 'timetable_import_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -84,6 +86,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
         builder: (context) => SemesterPlansScreen(settings: widget.settings),
       ),
     );
+  }
+
+  void _openPeriodTable() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => PeriodTableScreen(settings: widget.settings),
+      ),
+    );
+  }
+
+  Future<void> _openTimetableImport() async {
+    final imported = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (context) =>
+            TimetableImportScreen(settings: widget.settings, db: widget.db),
+      ),
+    );
+    if (imported == true) widget.onDataChanged?.call();
   }
 
   Future<void> _save() async {
@@ -188,7 +208,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onPressed: _openSemesterPlans,
           child: const Text('学期方案（新建课程时一键套用）'),
         ),
-        const SizedBox(height: 16),
+        OutlinedButton(
+          key: const Key('settings_period_table'),
+          onPressed: _openPeriodTable,
+          child: const Text('作息表（课表导入时按它换算节次时间）'),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton(
+          key: const Key('settings_timetable_import'),
+          onPressed: _openTimetableImport,
+          child: const Text('课表导入（粘贴课表文字，AI 解析成课程）'),
+        ),
+        const SizedBox(height: 12),
         const Text(
           'AI 供应商（OpenAI 兼容）',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
