@@ -87,8 +87,9 @@ void main() {
     // 两门都画出来
     expect(find.text('本周的课'), findsOneWidget);
     expect(find.text('只在第一周的课'), findsOneWidget);
-    // 只有不上的那门带标签
+    // 只有不上的那门带标签；窄列里标签必须单行，不能挤成「非本 / 周」
     expect(find.text('非本周'), findsOneWidget);
+    expect(tester.widget<Text>(find.text('非本周')).maxLines, 1);
   });
 
   // 2026-11-22 路径 A：格子砍 25% 后单节块只有 42dp。

@@ -544,8 +544,10 @@ class _TimetableScreenState extends State<TimetableScreen> {
                 const Spacer(),
                 if (showGhostTag)
                   Container(
+                    // 窄列只有约 31dp 文字区：三个字 8px 已经占 24dp，
+                    // 左右各 4dp 内边距会把它挤成「非本 / 周」两行，收紧到 2dp。
                     padding: EdgeInsets.symmetric(
-                      horizontal: compact ? 2.5 : 4,
+                      horizontal: compact ? 1.5 : 2,
                       vertical: tagPadV,
                     ),
                     decoration: BoxDecoration(
@@ -555,6 +557,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
                     ),
                     child: Text(
                       '非本周',
+                      maxLines: 1,
                       style: TextStyle(
                         fontSize: tagFont,
                         height: 1.1, // 和上面 tagHeight 的估算保持一致
