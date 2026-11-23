@@ -39,6 +39,24 @@ double? nowLineTopFor(
   return (minutes - gridStart) * pxPerMinute;
 }
 
+/// 左栏刻度（2026-11-23 用户要求）：不要「第 N 节 / A B C」，只要
+/// `8:00`、`10:00` 这种每两小时一个的整点。
+///
+/// 起点对齐到 step 的整数倍，所以 08:00 起就是 8/10/12/14…，不会
+/// 因为作息表第一节是 08:00 就出现错位刻度。
+/// 抽成纯函数是为了单测能固定 gridStart/gridEnd 验算。
+List<int> timeGutterMarks(int gridStart, int gridEnd, {int step = 120}) {
+  final first = ((gridStart + step - 1) ~/ step) * step;
+  final marks = <int>[];
+  for (var m = first; m <= gridEnd; m += step) {
+    marks.add(m);
+  }
+  return marks;
+}
+
+/// `480 -> 8:00`，不补前导零——用户要的就是这个写法。
+String timeGutterLabel(int minutes) => '${minutes ~/ 60}:00';
+
 class TimetableScreen extends StatefulWidget {
   const TimetableScreen({
     super.key,
@@ -89,6 +107,11 @@ class _TimetableScreenState extends State<TimetableScreen> {
   /// 课名 → 底色，整屏统一分配（见 [assignCourseColors]），撞色会自动错开。
   Map<String, Color> _colors = const {};
   bool _loading = true;
+
+  /// 左栏刻度模式（2026-11-23 用户改主意：两种都留着，点按钮切换）。
+  /// true = 每两小时整点（8:00 / 10:00…），false = 节次 + 起止时刻（1 / 08:00 / 08:45）。
+  /// 默认整点——那是用户第一条明确要求；节次留作对教务系统「第 3-5 节」时用。
+  bool _showClockTicks = true;
 
   /// 当前时间线每分钟动一次。用 Timer 而不是依赖页面重建——
   /// 用户可能就停在这一页盯着看，不刷新的话那条线会一直是打开时的位置。
@@ -205,15 +228,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
       children: [
         Row(
           children: [
-            SizedBox(
-              width: gutterWidth,
-              child: Center(
-                child: Text(
-                  '${monday.month}月',
-                  style: const TextStyle(fontSize: 11, color: warmInkSoft),
-                ),
-              ),
-            ),
+            SizedBox(width: gutterWidth, child: _gutterHeader(monday)),
             for (final day in days)
               Expanded(
                 child: _dayHeader(
@@ -258,6 +273,48 @@ class _TimetableScreenState extends State<TimetableScreen> {
     );
   }
 
+  /// 左上角：刻度切换按钮 + 月份。
+  ///
+  /// 按钮上直接写当前模式，点一下切到另一种——比图标更好认，不用猜。
+  Widget _gutterHeader(DateTime monday) {
+    // 整个左上角（按钮 + 月份）都是热区：小胶囊只有十几 dp，真机手指点不准。
+    // 46dp 宽 × 整行高的区域随便点，都能切换。
+    return GestureDetector(
+      key: const Key('tt_toggle_ticks'),
+      behavior: HitTestBehavior.opaque,
+      onTap: () => setState(() => _showClockTicks = !_showClockTicks),
+      child: Semantics(
+        button: true,
+        label: _showClockTicks ? '当前整点刻度，点按切换为节次' : '当前节次刻度，点按切换为整点',
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              decoration: BoxDecoration(
+                color: warmChip,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                _showClockTicks ? '时' : '节',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: warmInkSoft,
+                ),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${monday.month}月',
+              style: const TextStyle(fontSize: 9, color: warmInkFaint),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// 星期 + 日期。今天用主题蓝胶囊压住日期，和其他天区分开。
   Widget _dayHeader(DateTime day, {required bool isToday}) {
     return Column(
@@ -289,8 +346,10 @@ class _TimetableScreenState extends State<TimetableScreen> {
     );
   }
 
-  /// 左栏：第 N 节 + 起 / 止时刻。当前时间在右边缘用一个小圆点标出，
-  /// 和今天那一列的横线首尾呼应。
+  /// 左栏：默认每两小时一个整点（8:00 / 10:00 …），点左上角按钮切到
+  /// 节次 + 起止时刻（1 / 08:00 / 08:45）。2026-11-23 用户最终定的方案：
+  /// 两种都留着，一键切换，不再二选一。
+  /// 当前时间在右边缘用一个小圆点标出，和今天那一列的横线首尾呼应。
   Widget _timeGutter({double? nowLineTop}) {
     return SizedBox(
       width: gutterWidth,
@@ -310,40 +369,60 @@ class _TimetableScreenState extends State<TimetableScreen> {
                 ),
               ),
             ),
-          for (final slot in _table.slots)
-            Positioned(
-              top: (parseHm(slot.start) - _gridStart) * pxPerMinute - 4,
-              left: 0,
-              right: 0,
-              child: Column(
-                children: [
-                  Text(
-                    slot.label,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: warmInk,
-                    ),
+          if (_showClockTicks)
+            for (final minutes in timeGutterMarks(_gridStart, _gridEnd))
+              Positioned(
+                // 单行文字垂直居中在刻度线上：-7 大约等于半个 11px 行高
+                top: (minutes - _gridStart) * pxPerMinute - 7,
+                left: 0,
+                right: 0,
+                child: Text(
+                  timeGutterLabel(minutes),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: warmInkSoft,
                   ),
-                  Text(
-                    slot.start,
-                    style: const TextStyle(
-                      fontSize: 9,
-                      height: 1.2,
-                      color: warmInkFaint,
+                ),
+              )
+          else
+            // 节次模式：恢复成改版前的「第 N 节 + 起止时刻」三行，
+            // 方便对照教务系统里「第 3-5 节」这种写法。
+            for (final slot in _table.slots)
+              Positioned(
+                top: (parseHm(slot.start) - _gridStart) * pxPerMinute - 4,
+                left: 0,
+                right: 0,
+                child: Column(
+                  children: [
+                    Text(
+                      slot.label,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: warmInk,
+                      ),
                     ),
-                  ),
-                  Text(
-                    slot.end,
-                    style: const TextStyle(
-                      fontSize: 9,
-                      height: 1.2,
-                      color: warmInkFaint,
+                    Text(
+                      slot.start,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        height: 1.2,
+                        color: warmInkFaint,
+                      ),
                     ),
-                  ),
-                ],
+                    Text(
+                      slot.end,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        height: 1.2,
+                        color: warmInkFaint,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
         ],
       ),
     );
@@ -363,7 +442,7 @@ class _TimetableScreenState extends State<TimetableScreen> {
       height: _totalHeight,
       decoration: BoxDecoration(
         color: isToday ? const Color(0xFF2A6FD6).withAlpha(8) : null,
-        border: const Border(left: BorderSide(color: line, width: 0.5)),
+        // 2026-11-23：列间竖线去掉，只留横线（下面的每节起点线）。
       ),
       child: Stack(
         children: [

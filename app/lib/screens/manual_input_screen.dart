@@ -152,6 +152,9 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
           _note.text = item.note ?? '';
           _teacher.text = item.teacher ?? '';
           _weeks.text = item.weeks ?? '';
+          // 课程提前量（2026-11-23）：编辑时要把老值带回来，不然一保存
+          // 就被默认 10 分钟覆盖掉。
+          _leadMinutes = item.remindBeforeMinutes;
           // 学期起止正好等于某个方案时选中它，让用户看清这门课挂在哪学期。
           for (final plan in _plans) {
             if (plan.start == item.semesterStart &&
@@ -354,6 +357,7 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
             semesterStart: semesterStartText,
             semesterEnd: semesterEndText,
             weekParity: _weekParity,
+            remindBeforeMinutes: _leadMinutes,
           );
           final int id;
           if (_editingId != null) {
@@ -495,9 +499,11 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
                               _type = value.first;
                               // 切类型时回到该类型的默认提前量，避免把事件的
                               // 15 分钟带到任务上（任务到点即可）。
-                              _leadMinutes = value.first == InputType.task
-                                  ? defaultTaskLeadMinutes
-                                  : defaultEventLeadMinutes;
+                              _leadMinutes = switch (value.first) {
+                                InputType.task => defaultTaskLeadMinutes,
+                                InputType.course => defaultCourseLeadMinutes,
+                                _ => defaultEventLeadMinutes,
+                              };
                             });
                             if (value.first == InputType.course) {
                               _autoSelectPlan();
@@ -554,27 +560,33 @@ class _ManualInputScreenState extends State<ManualInputScreen> {
                       border: const OutlineInputBorder(),
                     ),
                   ),
-                  if (_type != InputType.course) ...[
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<int>(
-                      // initialValue 只在构建时生效，靠 key 随值重建同步显示。
-                      key: ValueKey('input_lead_$_leadMinutes'),
-                      initialValue: _leadMinutes,
-                      decoration: const InputDecoration(
-                        labelText: '提前提醒',
-                        helperText: '事件默认提前 15 分钟，任务默认到点',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: [
-                        for (final minutes in leadMinuteOptions)
-                          DropdownMenuItem(
-                            value: minutes,
-                            child: Text(leadLabel(minutes)),
-                          ),
-                      ],
-                      onChanged: (value) =>
-                          setState(() => _leadMinutes = value ?? 0),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    // initialValue 只在构建时生效，靠 key 随值重建同步显示。
+                    key: ValueKey('input_lead_$_leadMinutes'),
+                    initialValue: _leadMinutes,
+                    decoration: InputDecoration(
+                      labelText: '提前提醒',
+                      // 2026-11-23：课程也能选了。三类默认值不同，提示跟着变。
+                      helperText: switch (_type) {
+                        InputType.course => '课程默认提前 10 分钟',
+                        InputType.task => '任务默认到点',
+                        _ => '事件默认提前 15 分钟',
+                      },
+                      border: const OutlineInputBorder(),
                     ),
+                    items: [
+                      for (final minutes in leadMinuteOptions)
+                        DropdownMenuItem(
+                          value: minutes,
+                          child: Text(leadLabel(minutes)),
+                        ),
+                    ],
+                    onChanged: (value) =>
+                        setState(() => _leadMinutes = value ?? 0),
+                  ),
+                  // 课程恒为普通优先级，不显示这个选择器（TimelineEntry 里写死）。
+                  if (_type != InputType.course) ...[
                     const SizedBox(height: 12),
                     const Align(
                       alignment: Alignment.centerLeft,

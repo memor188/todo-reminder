@@ -176,9 +176,38 @@ void main() {
     // 表头是单字周几（参考图样式），不再是「周一」
     expect(find.text('一'), findsWidgets);
     expect(find.text('日'), findsWidgets);
-    // 左栏是节次 + 起止时刻
+    // 左栏默认每两小时一个整点（2026-11-23）
+    expect(find.text('8:00'), findsOneWidget);
+    expect(find.text('10:00'), findsOneWidget);
+    expect(find.text('08:45'), findsNothing);
+  });
+
+  testWidgets('课表左栏刻度可一键切换：整点 ↔ 节次', (WidgetTester tester) async {
+    useTallScreen(tester);
+    await tester.pumpWidget(buildApp(db: FakeDbService()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('课表'));
+    await tester.pumpAndSettle();
+
+    // 默认整点，按钮显示「时」
+    expect(find.byKey(const Key('tt_toggle_ticks')), findsOneWidget);
+    expect(find.text('时'), findsOneWidget);
+    expect(find.text('8:00'), findsOneWidget);
+
+    // 点一下 → 节次模式：出现起止时刻，整点消失
+    await tester.tap(find.byKey(const Key('tt_toggle_ticks')));
+    await tester.pumpAndSettle();
+    expect(find.text('节'), findsOneWidget);
     expect(find.text('08:00'), findsOneWidget);
     expect(find.text('08:45'), findsOneWidget);
+    expect(find.text('8:00'), findsNothing);
+
+    // 再点一下 → 回到整点
+    await tester.tap(find.byKey(const Key('tt_toggle_ticks')));
+    await tester.pumpAndSettle();
+    expect(find.text('时'), findsOneWidget);
+    expect(find.text('8:00'), findsOneWidget);
+    expect(find.text('08:45'), findsNothing);
   });
 
   testWidgets('课表可以左右滑动翻周（不用点箭头）', (WidgetTester tester) async {
@@ -278,6 +307,37 @@ void main() {
     final course = db.savedCourses.single;
     expect(course.teacher, '陈哲');
     expect(course.weeks, '3-18');
+  });
+
+  // 2026-11-23：课程录入页以前没有「提前提醒」，现在要和事件/任务一样能选，
+  // 并且真的写进 Course 字段（否则排程还是写死的 10 分钟）。
+  testWidgets('课程录入页能选提前提醒并落库', (WidgetTester tester) async {
+    useTallScreen(tester);
+    final db = FakeDbService();
+    await tester.pumpWidget(buildApp(db: db));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('add_entry')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('课程'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('提前提醒'), findsOneWidget);
+    await tester.ensureVisible(find.text('提前提醒'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('提前提醒'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('提前 30 分钟').last);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('input_title')), '数据结构');
+    await tester.ensureVisible(find.byKey(const Key('save_entry')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('save_entry')));
+    await tester.pumpAndSettle();
+
+    expect(db.savedCourses, hasLength(1));
+    expect(db.savedCourses.single.remindBeforeMinutes, 30);
   });
 
   testWidgets('周次写法认不出来时拦下，不写脏数据', (WidgetTester tester) async {

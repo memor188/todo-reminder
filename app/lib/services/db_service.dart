@@ -28,7 +28,7 @@ class DbService {
     final dir = await getDatabasesPath();
     final db = await openDatabase(
       p.join(dir, 'todo_app.db'),
-      version: 5,
+      version: 6,
       onCreate: _createTables,
       onUpgrade: _upgradeTables,
     );
@@ -53,7 +53,8 @@ class DbService {
         semester_end TEXT NOT NULL,
         week_parity INTEGER NOT NULL DEFAULT 0,
         teacher TEXT,
-        weeks TEXT
+        weeks TEXT,
+        remind_before_minutes INTEGER NOT NULL DEFAULT 10
       )
     ''');
     await db.execute('''
@@ -87,6 +88,9 @@ class DbService {
   /// v2 → v3：事件和任务补 remind_before_minutes（提前量，V3）。
   /// v3 → v4：事件和任务补 priority（优先级标签，V3）。
   /// v4 → v5：课程补 teacher 和 weeks（教师、精确周次，V4 课表导入）。
+  /// v5 → v6：课程补 remind_before_minutes（课程提前量可配置，2026-11-23）。
+  ///   默认值给 10 而不是 0——加字段前课程就是固定提前 10 分钟，
+  ///   老用户升级后提醒时刻不能突然变成上课那一秒。
   ///
   /// 每步都用 PRAGMA 先查列，避免「列已存在」时 ALTER 报错。
   Future<void> _upgradeTables(
@@ -116,6 +120,14 @@ class DbService {
       // teacher 则来自教务系统导出文件。
       await _addColumnIfMissing(db, 'courses', 'teacher', 'TEXT');
       await _addColumnIfMissing(db, 'courses', 'weeks', 'TEXT');
+    }
+    if (oldVersion < 6) {
+      await _addColumnIfMissing(
+        db,
+        'courses',
+        'remind_before_minutes',
+        'INTEGER NOT NULL DEFAULT 10',
+      );
     }
     if (oldVersion < 4) {
       await _addColumnIfMissing(

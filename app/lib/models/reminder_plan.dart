@@ -1,11 +1,9 @@
 import 'course.dart';
 import 'timeline.dart';
 
-/// 课程提醒的默认提前量。
-///
-/// 事件默认提前 15 分钟（要提前到场办事），任务默认到点（当天做完即可），
-/// 课程取中间值 10 分钟——从宿舍楼下走到教学楼正好够。
-const int defaultCourseLeadMinutes = 10;
+// 默认值已下沉到 Course 模型（这样录入页和调度共用一份）。
+// 这里转出一份，老代码从 reminder_plan 引用这个名字照样能用。
+export 'course.dart' show defaultCourseLeadMinutes;
 
 /// 课程提醒只排未来这么多周。
 ///
@@ -65,9 +63,11 @@ String courseReminderBody(Course course, int leadMinutes) {
 List<CourseReminder> planCourseReminders({
   required Course course,
   required DateTime now,
-  int leadMinutes = defaultCourseLeadMinutes,
+  // 不写死默认值：默认取课程自己的字段。显式传值仅供测试/特殊场景覆盖。
+  int? leadMinutes,
   int horizonWeeks = courseReminderHorizonWeeks,
 }) {
+  final effectiveLead = leadMinutes ?? course.remindBeforeMinutes;
   final courseId = course.id;
   if (courseId == null) return const [];
 
@@ -109,7 +109,7 @@ List<CourseReminder> planCourseReminders({
       startMinutes % 60,
     );
     final fireAt = startAt.subtract(
-      Duration(minutes: leadMinutes <= 0 ? 0 : leadMinutes),
+      Duration(minutes: effectiveLead <= 0 ? 0 : effectiveLead),
     );
     // 今天这节课的提醒点已经过去：跳过，等下一周。
     if (!fireAt.isAfter(now)) continue;

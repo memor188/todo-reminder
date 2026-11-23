@@ -393,5 +393,20 @@ void main() {
       expect(lineAt(DateTime(2026, 11, 18, 7, 0)), isNull); // 早于 08:00
       expect(lineAt(DateTime(2026, 11, 18, 23, 0)), isNull); // 晚于 21:55
     });
+
+    test('左栏刻度是每两小时整点，不带节次编号', () {
+      expect(timeGutterMarks(480, 1315), [480, 600, 720, 840, 960, 1080, 1200]);
+      expect(timeGutterMarks(480, 1315).map(timeGutterLabel).toList(), [
+        '8:00',
+        '10:00',
+        '12:00',
+        '14:00',
+        '16:00',
+        '18:00',
+        '20:00',
+      ]);
+      // 起点不是整点倍数时向上对齐，不生成 8:55 这种错位刻度
+      expect(timeGutterMarks(535, 900), [600, 720, 840]);
+    });
   });
 }

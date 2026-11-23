@@ -55,6 +55,7 @@ Course course({
   int? id = 2,
   String semesterEnd = '2027-01-15',
   int weekParity = 0,
+  int leadMinutes = defaultCourseLeadMinutes,
 }) => Course(
   id: id,
   title: '高等数学A',
@@ -65,6 +66,7 @@ Course course({
   semesterStart: '2026-09-07',
   semesterEnd: semesterEnd,
   weekParity: weekParity,
+  remindBeforeMinutes: leadMinutes,
 );
 
 void main() {
@@ -233,6 +235,29 @@ void main() {
           (i) => courseReminderId(2, i),
         ),
       );
+    });
+
+    // 2026-11-23：课程提前量从写死的 10 分钟变成用户可选，调度必须跟着走。
+    test('课程设提前 30 分钟 → 7:30 响，正文也跟着变', () async {
+      final sink = _RecordingSink();
+      await ReminderService(sink).syncAll(
+        AppData(
+          courses: [course(leadMinutes: 30)],
+          events: const [],
+          tasks: const [],
+        ),
+        now: now,
+      );
+
+      expect(sink.scheduled.first.at, DateTime(2026, 9, 7, 7, 30));
+      expect(sink.scheduled.first.body, '还有 30 分钟：高等数学A（E302）');
+    });
+
+    test('课程设到点提醒 → 8:00 响', () async {
+      final sink = _RecordingSink();
+      await ReminderService(sink).syncCourse(course(leadMinutes: 0), now: now);
+      expect(sink.scheduled.first.at, DateTime(2026, 9, 7, 8, 0));
+      expect(sink.scheduled.first.body, '到点了：高等数学A（E302）');
     });
 
     test('事件/任务/课程三类同时存在，号段互不覆盖', () async {

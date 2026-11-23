@@ -118,6 +118,8 @@ class ReminderService {
     final reminders = planCourseReminders(
       course: course,
       now: now ?? DateTime.now(),
+      // 2026-11-23：课程提前量由用户自己选，不再固定 10 分钟。
+      leadMinutes: course.remindBeforeMinutes,
     );
     var result = const ReminderSyncResult();
 

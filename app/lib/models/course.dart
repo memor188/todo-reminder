@@ -1,3 +1,9 @@
+/// 课程提醒的默认提前量：从宿舍走到教学楼大概 10 分钟。
+///
+/// 2026-11-23 之前这个值写死在 `reminder_plan.dart` 里、用户改不了；
+/// 现在下沉到 Course 模型，作为字段默认值，录入页就能像事件/任务一样选。
+const int defaultCourseLeadMinutes = 10;
+
 /// 课程：周期规则，改一次等于改整个学期。
 class Course {
   const Course({
@@ -14,6 +20,7 @@ class Course {
     required this.semesterStart, // yyyy-MM-dd
     required this.semesterEnd,
     this.weekParity = 0, // 0=每周，1=单周，2=双周（weeks 为空时兜底）
+    this.remindBeforeMinutes = defaultCourseLeadMinutes,
   });
 
   final int? id;
@@ -38,6 +45,10 @@ class Course {
   final String semesterEnd;
   final int weekParity;
 
+  /// 提前多少分钟响提醒（2026-11-23 用户要求课程也能调）。
+  /// 0 = 到点提醒；默认 10 分钟，和改动前写死的行为一致。
+  final int remindBeforeMinutes;
+
   Map<String, Object?> toMap() => {
     'id': id,
     'title': title,
@@ -52,6 +63,7 @@ class Course {
     'semester_start': semesterStart,
     'semester_end': semesterEnd,
     'week_parity': weekParity,
+    'remind_before_minutes': remindBeforeMinutes,
   };
 
   factory Course.fromMap(Map<String, Object?> map) => Course(
@@ -68,5 +80,9 @@ class Course {
     semesterStart: map['semester_start']! as String,
     semesterEnd: map['semester_end']! as String,
     weekParity: (map['week_parity'] as num?)?.toInt() ?? 0,
+    // 老备份/老库没有这一列时回落到 10，行为和加字段前完全一致。
+    remindBeforeMinutes:
+        (map['remind_before_minutes'] as num?)?.toInt() ??
+        defaultCourseLeadMinutes,
   );
 }

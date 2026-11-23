@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:todo_app/models/course.dart';
 import 'package:todo_app/models/reminder_plan.dart';
+import 'package:todo_app/models/timeline.dart';
 
 /// 2026-09-07 是周一，当天 06:00。学期 2026-09-07 ~ 2027-01-15，
 /// 和 App 里默认的 2026 学期计划一致。
@@ -22,6 +23,7 @@ Course course({
   String semesterStart = '2026-09-07',
   String semesterEnd = '2027-01-15',
   int weekParity = 0,
+  int leadMinutes = defaultCourseLeadMinutes,
 }) => Course(
   id: id,
   title: title,
@@ -32,6 +34,7 @@ Course course({
   semesterStart: semesterStart,
   semesterEnd: semesterEnd,
   weekParity: weekParity,
+  remindBeforeMinutes: leadMinutes,
 );
 
 String dayLabel(DateTime value) =>
@@ -228,6 +231,34 @@ void main() {
         ),
         isEmpty,
       );
+    });
+  });
+
+  // 2026-11-23：课程提前量可配置，数据层要能存、能读、老数据不炸。
+  group('课程提前量字段', () {
+    test('默认 10 分钟，且落在可选档位里', () {
+      expect(course().remindBeforeMinutes, 10);
+      expect(leadMinuteOptions, contains(defaultCourseLeadMinutes));
+    });
+
+    test('toMap / fromMap 往返保留自定义提前量', () {
+      final original = course(leadMinutes: 30);
+      final restored = Course.fromMap(original.toMap());
+      expect(restored.remindBeforeMinutes, 30);
+    });
+
+    test('老库/老备份没有这一列时回落 10 分钟', () {
+      final oldMap = course().toMap()..remove('remind_before_minutes');
+      expect(Course.fromMap(oldMap).remindBeforeMinutes, 10);
+    });
+
+    test('自定义提前量直接改变排程时刻', () {
+      final reminders = planCourseReminders(
+        course: course(leadMinutes: 30),
+        now: mondayEarly,
+      );
+      expect(reminders.first.fireAt, DateTime(2026, 9, 7, 7, 30));
+      expect(reminders.first.body, '还有 30 分钟：高等数学A（E302）');
     });
   });
 }
