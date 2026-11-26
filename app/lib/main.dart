@@ -14,6 +14,7 @@ import 'services/notification_service.dart';
 import 'services/reminder_service.dart';
 import 'services/settings_service.dart';
 import 'theme.dart';
+import 'widgets/disintegrate/index.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,6 +26,14 @@ Future<void> main() async {
   final db = DbService();
   await db.init();
   final settings = await SettingsService.load();
+
+  // 预编译粉尘消散 shader：编译要几百毫秒，放在启动阶段付掉，
+  // 否则第一次勾选时程序还没就绪，会静默降级成普通淡出（效果的开头和
+  // 结尾一样，只是没有粉尘）。不支持的设备会抛错，吞掉即可——
+  // DisintegrateEffect 自己会降级，不能让它挡住 App 启动。
+  try {
+    await DisintegrateProgram.preload();
+  } catch (_) {}
 
   // 响铃开关决定投递走哪条通道，必须在启动重排提醒之前注入，
   // 否则首次启动那批闹钟会按默认（只震动）排下去，用户明明开着响铃。

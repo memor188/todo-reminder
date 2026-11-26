@@ -23,6 +23,12 @@ class FakeDbService extends DbService {
   EventItem? updatedEvent;
   int? deletedEventId;
 
+  /// 勾选相关：记录最后一次 setTaskDone / setEventDone 的参数。
+  int? taskDoneId;
+  bool? taskDoneValue;
+  int? eventDoneId;
+  bool? eventDoneValue;
+
   @override
   Future<AppData> queryAll() async => data;
 
@@ -47,10 +53,56 @@ class FakeDbService extends DbService {
 
   @override
   Future<void> setTaskDone(int id, {required bool done}) async {
+    taskDoneId = id;
+    taskDoneValue = done;
+    // 2026-11-25 之前这里是直接把任务从 data 里删掉，模拟"勾完就不显示"。
+    // 现在勾完要沉到已完成区，所以改成翻转 done 标记。
     data = AppData(
       courses: data.courses,
       events: data.events,
-      tasks: data.tasks.where((t) => t.id != id).toList(),
+      tasks: [
+        for (final task in data.tasks)
+          if (task.id == id)
+            TaskItem(
+              id: task.id,
+              title: task.title,
+              dueDate: task.dueDate,
+              dueTime: task.dueTime,
+              location: task.location,
+              note: task.note,
+              done: done,
+              remindBeforeMinutes: task.remindBeforeMinutes,
+              priority: task.priority,
+            )
+          else
+            task,
+      ],
+    );
+  }
+
+  @override
+  Future<void> setEventDone(int id, {required bool done}) async {
+    eventDoneId = id;
+    eventDoneValue = done;
+    data = AppData(
+      courses: data.courses,
+      events: [
+        for (final event in data.events)
+          if (event.id == id)
+            EventItem(
+              id: event.id,
+              title: event.title,
+              startAt: event.startAt,
+              location: event.location,
+              note: event.note,
+              done: done,
+              remindBeforeMinutes: event.remindBeforeMinutes,
+              priority: event.priority,
+            )
+          else
+            event,
+      ],
+      tasks: data.tasks,
     );
   }
 }
@@ -82,6 +134,22 @@ void main() {
       tester.view.resetPhysicalSize();
       tester.view.resetDevicePixelRatio();
     });
+  }
+
+  /// 走完一次勾选的完整粉尘序列（2026-11-26）。
+  ///
+  /// `_toggleEntry` 是异步的：先 await 落库 + _load()（两帧），再 setState
+  /// flashKey。之后是四段 Timer 链 + shader 的 AnimationController。单纯
+  /// `pumpAndSettle()` 在 Timer 之间那几帧没有 scheduled frame 时会提前返回，
+  /// 所以按各段时长显式 pump，确保整条 2.3s 序列真的跑完。
+  Future<void> pumpBurst(WidgetTester tester) async {
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 520)); // ① 散开 500
+    await tester.pump(const Duration(milliseconds: 620)); // ② 收起 600
+    await tester.pump(const Duration(milliseconds: 820)); // ③ 重组 800
+    await tester.pump(const Duration(milliseconds: 420)); // ④ 高亮 400
+    await tester.pumpAndSettle();
   }
 
   testWidgets('整体背景是象牙白，不是纯白', (WidgetTester tester) async {
@@ -560,7 +628,7 @@ void main() {
     expect(db.deletedEventId, 7);
   });
 
-  testWidgets('任务勾选后从时间线消失', (WidgetTester tester) async {
+  testWidgets('任务勾选后沉到已完成区', (WidgetTester tester) async {
     final today = dateKey(DateTime.now());
     final db = FakeDbService();
     db.data = AppData(
@@ -575,10 +643,156 @@ void main() {
     await tester.tap(find.byKey(Key('day_$today')));
     await tester.pumpAndSettle();
     expect(find.text('取快递'), findsOneWidget);
+    // 还没勾，不该有已完成区。
+    expect(find.byKey(const Key('section_done')), findsNothing);
 
     await tester.tap(find.byKey(const Key('toggle_task_1')));
+    await pumpBurst(tester);
+
+    // 2026-11-25 过期分区改版：勾完不再从列表消失，而是沉到「已完成」区
+    // （灰着、带删除线），否则用户看不出「做完了」和「错过了」的区别。
+    expect(find.byKey(const Key('section_done')), findsOneWidget);
+    expect(find.text('取快递'), findsOneWidget);
+    expect(db.taskDoneId, 1);
+    expect(db.taskDoneValue, isTrue);
+  });
+
+  testWidgets('已完成刚好 5 条时不出现折叠控件', (WidgetTester tester) async {
+    final today = dateKey(DateTime.now());
+    final db = FakeDbService();
+    db.data = AppData(
+      courses: const [],
+      events: const [],
+      tasks: [
+        for (var i = 1; i <= 5; i++)
+          TaskItem(id: i, title: '任务$i', dueDate: today, done: true),
+      ],
+    );
+    await tester.pumpWidget(buildApp(db: db));
     await tester.pumpAndSettle();
-    expect(find.text('取快递'), findsNothing);
+    await tester.tap(find.byKey(Key('day_$today')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('section_done')), findsOneWidget);
+    expect(find.byKey(const Key('done_fold')), findsNothing);
+    for (var i = 1; i <= 5; i++) {
+      expect(find.text('任务$i'), findsOneWidget);
+    }
+  });
+
+  testWidgets('已完成 6 条默认折叠最近 5 条，展开后全显示', (WidgetTester tester) async {
+    final today = dateKey(DateTime.now());
+    final db = FakeDbService();
+    db.data = AppData(
+      courses: const [],
+      events: const [],
+      tasks: [
+        for (var i = 1; i <= 6; i++)
+          TaskItem(id: i, title: '任务$i', dueDate: today, done: true),
+      ],
+    );
+    await tester.pumpWidget(buildApp(db: db));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(Key('day_$today')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('done_fold')), findsOneWidget);
+    expect(find.text('展开更早的 1 条'), findsOneWidget);
+    // 区内是正序（任务1 最早），默认折叠保留**最近** 5 条，
+    // 所以最早的「任务1」被收起来 —— 这样刚勾完的那条永远看得见。
+    expect(find.text('任务1'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('done_fold')));
+    await tester.pumpAndSettle();
+    expect(find.text('任务1'), findsOneWidget);
+    expect(find.text('收起'), findsOneWidget);
+  });
+
+  testWidgets('勾选是散完再滑动：散开阶段下方不动，收起阶段才补位',
+      (WidgetTester tester) async {
+    // 用户看过视频后定的新时序（2026-11-25）：勾完先原地碎成粉尘飞散，
+    // 这 500ms 下方**纹丝不动**；散完了卡片高度才收起、下方滑上来补位。
+    // 旧行为是勾选瞬间就补位，用户原话「消失后立刻补位，看起来好难受」。
+    final today = dateKey(DateTime.now());
+    final db = FakeDbService();
+    db.data = AppData(
+      courses: const [],
+      events: const [],
+      tasks: [
+        TaskItem(id: 1, title: '任务一', dueDate: today),
+        TaskItem(id: 2, title: '任务二', dueDate: today),
+        TaskItem(id: 3, title: '任务三', dueDate: today),
+      ],
+    );
+    await tester.pumpWidget(buildApp(db: db));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(Key('day_$today')));
+    await tester.pumpAndSettle();
+
+    final before = tester.getTopLeft(find.byKey(const Key('tile_task_2'))).dy;
+    final goneHeight = tester
+        .getSize(find.byKey(const Key('tile_task_1')))
+        .height;
+
+    await tester.tap(find.byKey(const Key('toggle_task_1')));
+    await tester.pump();
+    await tester.pump(); // 落库 + 重载两帧，动画从 0 起步
+
+    // ① 散开阶段推到 250ms（总长 500ms）：下方那条必须还没动。
+    await tester.pump(const Duration(milliseconds: 250));
+    final duringDissipate =
+        tester.getTopLeft(find.byKey(const Key('tile_task_2'))).dy;
+    expect(duringDissipate, moreOrLessEquals(before, epsilon: 1),
+        reason: '散开阶段下方应当纹丝不动，不能边散边滑');
+
+    // 越过 500ms：散开 Timer 触发，这一帧才创建 removeItem 的收起动画。
+    // 必须单独再 pump 才能让它推进 —— 挤在同一大步里读到的还是起始位置。
+    await tester.pump(const Duration(milliseconds: 260));
+    // ② 收起阶段推进到中段（700ms 总长的约一半）。
+    await tester.pump(const Duration(milliseconds: 350));
+    final duringCollapse =
+        tester.getTopLeft(find.byKey(const Key('tile_task_2'))).dy;
+
+    // 收起动画走完，下方条目到位。
+    await tester.pump(const Duration(milliseconds: 400));
+    final after = tester.getTopLeft(find.byKey(const Key('tile_task_2'))).dy;
+
+    expect(after, lessThan(before), reason: '最终应当向上让位');
+    expect(duringCollapse, lessThan(before),
+        reason: '收起中途就该开始动，不能等到最后才跳');
+    expect(duringCollapse, greaterThan(after),
+        reason: '收起中途还没到位 —— 到位了就是瞬移');
+    // 让位的距离正好等于消失那一行的高度。
+    expect(before - after, closeTo(goneHeight, 4));
+    expect(after, moreOrLessEquals(before - goneHeight, epsilon: 4));
+  });
+
+  testWidgets('切日期不播动画，直接换成那一天', (WidgetTester tester) async {
+    // 换日期是整页换内容，一次动十几条更乱，所以列表实例按日期重建。
+    final now = DateTime.now();
+    final today = dateKey(now);
+    final monday = now.subtract(Duration(days: now.weekday - 1));
+    final other = dateKey(monday);
+    final db = FakeDbService();
+    db.data = AppData(
+      courses: const [],
+      events: const [],
+      tasks: [TaskItem(id: 1, title: '今天的任务', dueDate: today)],
+    );
+    await tester.pumpWidget(buildApp(db: db));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(Key('day_$today')));
+    await tester.pumpAndSettle();
+    expect(find.text('今天的任务'), findsOneWidget);
+
+    if (other != today) {
+      await tester.tap(find.byKey(Key('day_$other')));
+      await tester.pump();
+      // 只推一帧：没有残留动画，内容已经整页换掉了。
+      expect(find.text('今天的任务'), findsNothing);
+      await tester.pumpAndSettle();
+    }
   });
 
   testWidgets('我的页可进入学期方案并新增一条', (WidgetTester tester) async {

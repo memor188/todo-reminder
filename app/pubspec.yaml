@@ -98,3 +98,7 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+  # 勾选完成的粉尘消散效果（2026-11-26，源码抠自 disintegrate，MIT）。
+  shaders:
+    - shaders/disintegrate.frag

@@ -5,6 +5,11 @@ import 'week_set.dart';
 
 enum EntryType { course, event, task }
 
+/// 条目在某一时刻的三态（2026-11-25 定稿，见 docs/设计-日程过期分区.md）。
+///
+/// 日程页用它把当天条目切成三段：正常 → 已过期 → 已完成，顺序固定不交错。
+enum EntryState { normal, overdue, done }
+
 /// 显示层统一条目：数据层三张表分开，显示层在这里合并排序。
 class TimelineEntry {
   const TimelineEntry({
@@ -15,6 +20,7 @@ class TimelineEntry {
     required this.sortMinutes,
     required this.timeLabel,
     this.endMinutes,
+    this.deadlineMinutes,
     this.location,
     this.note,
     this.colorHex,
@@ -31,6 +37,18 @@ class TimelineEntry {
 
   /// 结束时刻（当天分钟数）。只给"有明确结束时间"的条目（目前是课程）。
   final int? endMinutes;
+
+  /// 判定"过没过期"用的时刻（当天分钟数）。
+  ///
+  /// 和 [sortMinutes] 必须分开：课程按**开始**时刻排序才自然，但**上课中不能
+  /// 算过期**，判定要用**下课**时刻。两者共用一个字段一定会出「正在上的课
+  /// 显示成灰的」这种 bug。
+  ///
+  /// 为 null 时按 [effectiveDeadline] 回退，兼容老调用点与老测试。
+  final int? deadlineMinutes;
+
+  /// 实际用于判定的时刻：显式给的优先，课程回退到下课，其余回退到排序时刻。
+  int get effectiveDeadline => deadlineMinutes ?? endMinutes ?? sortMinutes;
   final String timeLabel;
   final String? location;
   final String? note;
@@ -266,6 +284,7 @@ List<TimelineEntry> expandCourse(Course course, DateTime day) {
       sortMinutes: begin,
       timeLabel: '${course.startTime}–${course.endTime}',
       endMinutes: parseHm(course.endTime),
+      deadlineMinutes: parseHm(course.endTime),
       location: course.location,
       note: course.color,
       colorHex: course.color,
@@ -295,6 +314,7 @@ List<TimelineEntry> expandCourseForGrid(Course course, DateTime day) {
       sortMinutes: begin,
       timeLabel: '${course.startTime}–${course.endTime}',
       endMinutes: parseHm(course.endTime),
+      deadlineMinutes: parseHm(course.endTime),
       location: course.location,
       note: course.teacher,
       colorHex: course.color,
@@ -332,8 +352,11 @@ List<TimelineEntry> buildTimeline({
         timeLabel:
             '${start.hour.toString().padLeft(2, '0')}:'
             '${start.minute.toString().padLeft(2, '0')}',
+        // 事件是"到点人必须在那"，过了开始时刻就算过期。
+        deadlineMinutes: start.hour * 60 + start.minute,
         location: event.location,
         note: event.note,
+        done: event.done,
         priority: event.priority,
       ),
     );
@@ -350,8 +373,12 @@ List<TimelineEntry> buildTimeline({
         title: task.title,
         sortMinutes: minutes,
         timeLabel: task.dueTime ?? '全天',
+        // 无钟点的任务是"当天做完就行"，判定压到当天最后一分钟；
+        // 排序仍用 24:00 把它摆在全天最后。
+        deadlineMinutes: task.dueTime == null ? 23 * 60 + 59 : minutes,
         location: task.location,
         note: task.note,
+        done: task.done,
         priority: task.priority,
       ),
     );
@@ -443,4 +470,103 @@ List<GridSlot> layoutDay(
   flush();
 
   return slots;
+}
+
+/// 一天的日程切成三段（2026-11-25 定稿，见 docs/设计-日程过期分区.md）。
+///
+/// 顺序固定：正常 → 已过期 → 已完成，**永不交错**。过期的还欠着、完成的
+/// 已经了了，欠着的必须比了了的靠前，否则一眼扫下去会以为今天全做完了。
+class DaySections {
+  const DaySections({
+    this.normal = const [],
+    this.overdue = const [],
+    this.done = const [],
+  });
+
+  final List<TimelineEntry> normal;
+  final List<TimelineEntry> overdue;
+  final List<TimelineEntry> done;
+
+  bool get isEmpty => normal.isEmpty && overdue.isEmpty && done.isEmpty;
+  bool get isNotEmpty => !isEmpty;
+  int get total => normal.length + overdue.length + done.length;
+}
+
+/// 区内排序键：时间正序 → 优先级降序 → key 升序。
+///
+/// 第三级不是装饰：同一时刻有多条时（比如两个都设了 09:00），没有稳定的
+/// 兜底键，每次重排顺序都可能变，列表会自己抖。
+int _compareInSection(TimelineEntry a, TimelineEntry b) {
+  final byTime = a.sortMinutes.compareTo(b.sortMinutes);
+  if (byTime != 0) return byTime;
+  final byPriority = b.priority.compareTo(a.priority);
+  if (byPriority != 0) return byPriority;
+  return a.key.compareTo(b.key);
+}
+
+/// 判定一条条目此刻处于哪一状态。
+///
+/// 已完成优先：勾了就是完成，与时间无关。
+/// 其余看判定时刻 —— 只有"当天"的条目会过期，未来的日子恒为正常。
+///
+/// 课程是固定时刻**发生**的事，没有"欠着没做"这回事：时间一到自然结束，
+/// 所以下课/过期都属于**完成**（2026-11-26 用户纠正），不进"已过期"区。
+/// 事件/任务才是"答应了要做"的，过点未完成才算过期。
+EntryState resolveEntryState(
+  TimelineEntry entry, {
+  required DateTime day,
+  required DateTime now,
+}) {
+  if (entry.done) return EntryState.done;
+
+  // 课程过点后的归宿：完成，而非过期。
+  final pastState = entry.type == EntryType.course
+      ? EntryState.done
+      : EntryState.overdue;
+
+  final target = DateTime(day.year, day.month, day.day);
+  final today = DateTime(now.year, now.month, now.day);
+  if (target.isAfter(today)) return EntryState.normal;
+  if (target.isBefore(today)) return pastState;
+
+  // 恰好等于判定时刻**不算**过期：上课上到 11:50，11:50 那一分还在上课。
+  final nowMinutes = now.hour * 60 + now.minute;
+  return nowMinutes > entry.effectiveDeadline
+      ? pastState
+      : EntryState.normal;
+}
+
+/// 把某一天的日程按三态切段并各自排序。
+DaySections buildDaySections({
+  required DateTime day,
+  required List<Course> courses,
+  required List<EventItem> events,
+  required List<TaskItem> tasks,
+  required DateTime now,
+}) {
+  final all = buildTimeline(
+    day: day,
+    courses: courses,
+    events: events,
+    tasks: tasks,
+    includeDone: true,
+  );
+
+  final normal = <TimelineEntry>[];
+  final overdue = <TimelineEntry>[];
+  final done = <TimelineEntry>[];
+  for (final entry in all) {
+    switch (resolveEntryState(entry, day: day, now: now)) {
+      case EntryState.normal:
+        normal.add(entry);
+      case EntryState.overdue:
+        overdue.add(entry);
+      case EntryState.done:
+        done.add(entry);
+    }
+  }
+  normal.sort(_compareInSection);
+  overdue.sort(_compareInSection);
+  done.sort(_compareInSection);
+  return DaySections(normal: normal, overdue: overdue, done: done);
 }

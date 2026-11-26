@@ -246,6 +246,19 @@ class DbService {
     );
   }
 
+  /// 事件型待办也支持勾选（2026-11-25）。
+  ///
+  /// 表里从 V1 起就有 `done` 列，只是一直没有写入接口 —— 日程页只能给任务
+  /// 打勾，考试、讲座这种做完了也没地方标记。
+  Future<void> setEventDone(int id, {required bool done}) async {
+    await (await database).update(
+      'events',
+      {'done': done ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   Future<AppData> queryAll() async {
     final db = await database;
     final courses = await db.query(
