@@ -1,3 +1,6 @@
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../models/course.dart';
@@ -21,6 +24,14 @@ const String sampleLongNotice =
     '可填写下方报名问卷：https://v.wjx.cn/vm/Pc9A5ho.aspx '
     '🔥期待在活动现场见到大家！不见不散~';
 
+/// 从相册选出的图片：名字用于推断 MIME，字节直接喂给多模态模型。
+class PickedNoticeImage {
+  const PickedNoticeImage({required this.name, required this.bytes});
+
+  final String name;
+  final List<int> bytes;
+}
+
 /// AI 对话录入：一句话可解析出多条草稿，每条独立确认入库。
 ///
 /// 草稿只活在内存里，用户按下「确认入库」才写表——这是需求里的硬约束：
@@ -31,11 +42,15 @@ class AiChatScreen extends StatefulWidget {
     required this.settings,
     required this.db,
     required this.notifications,
+    this.pickImage,
   });
 
   final SettingsService settings;
   final DbService db;
   final NotificationService notifications;
+
+  /// 测试里注入假图片用；真机走 [AiChatScreen._pickImage]。
+  final Future<PickedNoticeImage?> Function()? pickImage;
 
   @override
   State<AiChatScreen> createState() => _AiChatScreenState();
@@ -100,6 +115,65 @@ class _AiChatScreenState extends State<AiChatScreen> {
     if (text.isEmpty) return;
     _say('我：$text');
     _input.clear();
+    await _runParse(text);
+  }
+
+  /// 选图入口：读相册 → 拦截不支持识图的模型 → 把截图和一句指令一起送 AI。
+  /// 不往输入框塞文字，图片走独立的载荷通道，草稿落地复用 [_runParse]。
+  Future<void> _parseImage() async {
+    final blocked = _visionBlockedReason();
+    if (blocked != null) {
+      _say('AI：$blocked');
+      return;
+    }
+    setState(() => _busy = true);
+    PickedNoticeImage? picked;
+    try {
+      picked = await (widget.pickImage ?? _pickImage)();
+    } catch (e) {
+      picked = null;
+      if (mounted) _say('AI：读取图片失败 — $e');
+    }
+    if (picked == null) {
+      if (mounted) setState(() => _busy = false);
+      return;
+    }
+    _say('我：（截图）${picked.name}');
+    await _runParse(
+      '这是一张群通知的截图，请从图片文字里抽出要办的事。',
+      imageBytes: picked.bytes,
+      imageMime: _mimeOf(picked.name.toLowerCase()),
+    );
+  }
+
+  static Future<PickedNoticeImage?> _pickImage() async {
+    final file = await FilePicker.pickFile();
+    if (file == null) return null;
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) return null;
+    return PickedNoticeImage(name: file.name, bytes: bytes);
+  }
+
+  /// 官方域名下只有多模态模型能读图；别家供应商放行让他试。
+  String? _visionBlockedReason() {
+    final settings = widget.settings;
+    if (!settings.baseUrl.contains('deepseek.com')) return null;
+    if (settings.model.toLowerCase().contains('flash')) return null;
+    return '当前模型 ${settings.model} 不能识图。去「我的」把模型换成 deepseek-flash，'
+        '或者直接粘贴文字。';
+  }
+
+  static String _mimeOf(String lower) {
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    return 'image/jpeg';
+  }
+
+  Future<void> _runParse(
+    String text, {
+    List<int>? imageBytes,
+    String imageMime = 'image/jpeg',
+  }) async {
     setState(() => _busy = true);
     try {
       final service = AiService(
@@ -107,7 +181,11 @@ class _AiChatScreenState extends State<AiChatScreen> {
         apiKey: widget.settings.apiKey,
         model: widget.settings.model,
       );
-      final drafts = await service.parse(text);
+      final drafts = await service.parse(
+        text,
+        imageBytes: imageBytes == null ? null : Uint8List.fromList(imageBytes),
+        imageMime: imageMime,
+      );
       if (!mounted) return;
       setState(() {
         _drafts.addAll(drafts.map(DraftCard.new));
@@ -328,6 +406,12 @@ class _AiChatScreenState extends State<AiChatScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
+                    IconButton(
+                      key: const Key('ai_pick_image'),
+                      tooltip: '从相册选一张通知截图',
+                      icon: const Icon(Icons.image_outlined),
+                      onPressed: _busy ? null : _parseImage,
+                    ),
                     FilledButton(
                       key: const Key('ai_parse'),
                       onPressed: _busy ? null : _parse,

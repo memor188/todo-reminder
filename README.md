@@ -123,7 +123,7 @@ cd android
 
 ```bash
 cd app
-flutter test       # 301 个用例
+flutter test       # 304 个用例
 flutter analyze    # 应为 0 问题
 ```
 

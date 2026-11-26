@@ -245,6 +245,57 @@ void main() {
       expect(drafts.single.title, isNot(contains('wjx')));
     });
 
+    test('传图片时 user content 是多模态数组，含 data URI 图片', () async {
+      final client = MockClient((request) async {
+        captured = request;
+        return okResponse({
+          'items': [
+            {
+              'type': 'task',
+              'title': '交报告',
+              'date': '2026-11-27',
+              'time': null,
+            },
+          ],
+        });
+      });
+
+      final drafts = await serviceFor(client).parse(
+        '这是一张群通知的截图，请从图片文字里抽出要办的事。',
+        imageBytes: utf8.encode('fake-image-bytes'),
+        imageMime: 'image/png',
+      );
+
+      final body = jsonDecode(captured!.body) as Map<String, dynamic>;
+      final content = body['messages'][1]['content'];
+      expect(content, isA<List>(), reason: '带图时 content 必须是数组');
+      final parts = content as List<dynamic>;
+      expect(parts.first['type'], 'text');
+      expect(parts[1]['type'], 'image_url');
+      final url = parts[1]['image_url']['url'] as String;
+      expect(url, startsWith('data:image/png;base64,'));
+      expect(drafts.single.title, '交报告');
+    });
+
+    test('不传图片时 user content 仍是纯文本（老行为不变）', () async {
+      final client = MockClient((request) async {
+        captured = request;
+        return okResponse({
+          'items': [
+            {
+              'type': 'task',
+              'title': '取快递',
+              'date': '2026-11-27',
+            },
+          ],
+        });
+      });
+
+      await serviceFor(client).parse('周五取快递');
+      final body = jsonDecode(captured!.body) as Map<String, dynamic>;
+      expect(body['messages'][1]['content'], '周五取快递');
+    });
+
     test('API key 为空时不发请求直接报错', () async {
       var called = false;
       final client = MockClient((_) async {

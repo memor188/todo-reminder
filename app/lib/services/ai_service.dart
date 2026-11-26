@@ -136,8 +136,9 @@ class AiService {
   static const String systemPrompt = '''
 你是待办解析助手。今天是 {TODAY}（星期{WEEKDAY}），当前时间 {HHMM}。
 
-用户会用中文口语描述要办的事，可能一次说多件。先做时间换算，再判断类型，
-最后只输出一个 JSON 对象，不要解释、不要 markdown 代码块。
+用户会用中文口语描述要办的事，可能一次说多件；也可能发一张群通知/海报的
+截图，那就从图片文字里抽要办的事，忽略群名、头像、表情和无关闲聊。
+先做时间换算，再判断类型，最后只输出一个 JSON 对象，不要解释、不要 markdown 代码块。
 
 时间换算：
 1. 「周五」「周三」指下一次出现的那个星期几（含今天）；本周那天已过就算下一周。
@@ -216,7 +217,13 @@ class AiService {
     return Uri.parse('$normalized/v1/chat/completions');
   }
 
-  Future<List<AiDraft>> parse(String userText) async {
+  /// [imageBytes] 非空时走多模态：把通知截图和 [userText] 一起发给模型。
+  /// 文字解析的行为不变，图片只是多一路输入（2026-11-27）。
+  Future<List<AiDraft>> parse(
+    String userText, {
+    Uint8List? imageBytes,
+    String imageMime = 'image/jpeg',
+  }) async {
     if (apiKey.trim().isEmpty) {
       throw const AiException('请先在「我的」页填写 API key');
     }
@@ -234,7 +241,9 @@ class AiService {
         .replaceAll('{WEEKDAY}', weekdays[now.weekday - 1])
         .replaceAll('{HHMM}', hhmm);
 
-    return _draftsFromPayload(await _post(system, userText));
+    return _draftsFromPayload(
+      await _post(system, userText, imageBytes: imageBytes, imageMime: imageMime),
+    );
   }
 
   /// 课表粘贴导入：一段课表文本 → 一批课程草稿。

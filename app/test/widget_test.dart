@@ -9,6 +9,7 @@ import 'package:todo_app/models/event_item.dart';
 import 'package:todo_app/models/semester_plan.dart';
 import 'package:todo_app/models/task.dart';
 import 'package:todo_app/models/timeline.dart';
+import 'package:todo_app/screens/ai_chat_screen.dart';
 import 'package:todo_app/services/db_service.dart';
 import 'package:todo_app/services/notification_service.dart';
 import 'package:todo_app/services/settings_service.dart';
@@ -501,6 +502,35 @@ void main() {
 
     expect(find.textContaining('请先在'), findsOneWidget);
     expect(find.byKey(const Key('ai_confirm_1')), findsNothing);
+  });
+
+  testWidgets('AI 页选图按钮：模型不支持识图时拦截，不弹文件选择器',
+      (WidgetTester tester) async {
+    useTallScreen(tester);
+    // 直接构造 AI 页，settings 不被导航层重建覆盖。
+    // 官方域名 + 非 flash 模型 = 必被 _visionBlockedReason 拦下。
+    final settings = SettingsService.inMemory(
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: 'sk-test',
+      model: 'deepseek-chat',
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: AiChatScreen(
+        settings: settings,
+        db: FakeDbService(),
+        notifications: NotificationService(),
+        // 若拦截失效就会调它；用它证明"没弹文件选择器"。
+        pickImage: () async => throw StateError('不该读图片'),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('ai_pick_image')));
+    await tester.pumpAndSettle();
+
+    // 拦截生效时不会调 pickImage（它会抛 StateError 让测试失败）。
+    // 消息文字在底部 ListView 里、视口未必展开，所以断言行为而非渲染文本。
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('AI 页示例按钮能一键填入样例文本', (WidgetTester tester) async {
