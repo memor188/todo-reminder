@@ -11,8 +11,12 @@
 | 版本 | `5.1.0+6`（versionName / versionCode） |
 | 包名 | `com.anlu.todo_app` |
 | 架构 | **仅 arm64-v8a**（2017 年后的手机基本都支持；极老的 32 位机装不了） |
-| 大小 | 20,224,596 字节（约 19.3 MB） |
-| MD5 | `b3a2f6d6540fceed8f3d89264ba7dccf` |
+| 大小 | 20,224,624 字节（约 19.3 MB） |
+| MD5 | `6cb0dcd3fb13fa00b6d7c6f62c7d7c18` |
+
+> 2026-11-28 修复版：补上了主 Manifest 的 `INTERNET` 权限。上一版
+> （MD5 `b3a2f6d6540fceed8f3d89264ba7dccf`）release 包无法联网，
+> AI 对话/课表识别全部报 `Failed host lookup`；已作废，**别再发上一版**。
 | 签名 | 自建 key `CN=AnLu Todo`，APK Signature Scheme v2 |
 | 编译 | AOT（`lib/arm64-v8a/libapp.so`，无 `kernel_blob.bin`） |
 
@@ -76,10 +80,14 @@ cd E:/todo-app/app/android
 ./gradlew assembleRelease --console=plain -Ptarget-platform=android-arm64
 ```
 
-⚠️ 三个必须：
+⚠️ 四个必须：
 - **不加 `--offline`**（release 引擎包是手工拷进本地仓库的，离线模式索引查不到）
 - **必须带 `-Ptarget-platform=android-arm64`**（本地仓库只有 arm64 release 包）
 - 改版本号要同时改 `app/pubspec.yaml` 和 **`app/android/local.properties`**：
   `local.properties` 里的 `flutter.versionName` / `flutter.versionCode` 会**盖掉** pubspec 的值。
+- **主 Manifest 必须有 `INTERNET` 权限**（`app/android/app/src/main/AndroidManifest.xml`）：
+  debug/profile 由 Flutter 模板自动加，release 只看主 Manifest。2026-11-28 踩到过——
+  漏了这条时 debug 正常、release 所有网络请求被系统拒，报 `Failed host lookup`，
+  极像 DNS/网络故障。`test/android_manifest_test.dart` 已加回归钉住。
 
 构建偶尔 SIGTERM（内存压力），原样重跑一次即可。
